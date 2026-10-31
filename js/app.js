@@ -48,9 +48,21 @@
         }
         : {},
     );
-    const result = await response.json().catch(() => ({}));
+    const body = await response.text();
+    let result;
+    try {
+      result = body ? JSON.parse(body) : {};
+    } catch {
+      const error = new Error(
+        `Server returned an invalid response (HTTP ${response.status}). Check the PHP/Apache error log.`,
+      );
+      error.status = response.status;
+      throw error;
+    }
     if (!response.ok) {
-      const error = new Error(result.error || "Something went wrong");
+      const error = new Error(
+        result.error || `Request failed (HTTP ${response.status}).`,
+      );
       error.status = response.status;
       throw error;
     }
@@ -158,13 +170,43 @@
   }
 
   function orderHtml(order) {
+    let status = order.delivery_status || order.order_status;
+    if (order.order_admin_status === "Rejected") {
+      status = "Sales order declined";
+    } else if (order.order_admin_status === "Pending" && order.order_no) {
+      status = "Awaiting order approval";
+    } else if (!status && order.po_status === "Open") {
+      status = "Purchase order open";
+    } else if (
+      !status &&
+      order.status === "Pending Quotation" &&
+      order.quotation_status === "Rejected"
+    ) {
+      status = "Awaiting revised quotation";
+    } else if (!status) {
+      status = order.status || "Pending";
+    }
+
     const items = (order.items || [])
       .map(
         (item) =>
           `<div class="oi"><img src="${esc(item.image_url || "assets/shoes/cut/RUN-001.svg")}" alt=""><div class="oi-info"><strong>${esc(item.product_name || order.product_code || "Product")}</strong><br><span class="muted">Code ${esc(order.product_code || "")} · Qty ${esc(item.quantity ?? order.quantity ?? "")}</span></div></div>`,
       )
       .join("");
-    return `<article class="order"><header><div><strong>${esc(order.request_no || order.order_number || "Order request")}</strong><br><span class="muted">${esc(order.request_date || order.created_at || "")}</span></div><span class="status">${esc(order.status || "Pending")}</span></header>${items}<p class="muted">Quotation: ${esc(order.quotation_no || "Not available yet")} · Purchase order: ${esc(order.po_no || "—")} · Order: ${esc(order.order_no || "—")}</p><p class="order-links"><a href="progress.php#${encodeURIComponent(order.request_no || "")}">Track progress →</a></p></article>`;
+    const fulfillment = [
+      order.po_no && `PO ${order.po_no}${order.po_status ? ` (${order.po_status})` : ""}`,
+      order.order_no &&
+        `Sales order ${order.order_no}${order.order_status ? ` (${order.order_status}${order.order_admin_status === "Pending" ? ", awaiting approval" : ""})` : ""}`,
+      order.delivery_no &&
+        `Delivery ${order.delivery_no}${order.delivery_status ? ` (${order.delivery_status})` : ""}`,
+      order.invoice_no &&
+        `Invoice ${order.invoice_no}${order.invoice_status ? ` (${order.invoice_status})` : ""}`,
+      order.payment_status && `Payment ${order.payment_status}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    return `<article class="order"><header><div><strong>${esc(order.request_no || order.order_number || "Order request")}</strong><br><span class="muted">${esc(order.request_date || order.created_at || "")}</span></div><span class="status">${esc(status)}</span></header>${items}<p class="muted">Quotation: ${esc(order.quotation_no || "Not available yet")}${fulfillment ? ` · ${esc(fulfillment)}` : ""}</p><p class="order-links"><a href="progress.php#${encodeURIComponent(order.request_no || "")}">Track progress →</a></p></article>`;
   }
 
   function quotationHtml(quotation, { actions = true, order = null } = {}) {
@@ -664,7 +706,10 @@
         "Quotation ready",
         "Your decision",
         "Purchase order",
-        "Order confirmed",
+        "Sales order",
+        "Sales approval",
+        "Delivery",
+        "Complete",
       ];
 
       function stages(order, quotation) {
@@ -675,29 +720,74 @@
           quotation?.customer_status === "Approved" ||
           !!order.po_no ||
           !!order.order_no;
+        const complete =
+          order.delivery_status === "Delivered" ||
+          order.order_status === "Completed";
+        const details = [
+          order.request_date,
+          rejected ? "Previous quotation declined" : order.quotation_no,
+          rejected ? "Declined; waiting for a revised quotation" : accepted ? "Accepted" : "",
+          order.po_no
+            ? `${order.po_no}${order.po_status ? ` · ${order.po_status}` : ""}`
+            : "",
+          order.order_no
+            ? `${order.order_no}${order.order_status ? ` · ${order.order_status}` : ""}`
+            : "",
+          order.order_admin_status === "Approved"
+            ? "Approved"
+            : order.order_admin_status === "Rejected"
+              ? "Rejected"
+              : order.order_no
+                ? "Awaiting approval"
+                : "",
+          order.delivery_no
+            ? `${order.delivery_no}${order.delivery_status ? ` · ${order.delivery_status}` : ""}`
+            : "",
+          order.invoice_no
+            ? `${order.invoice_no}${order.invoice_status ? ` · ${order.invoice_status}` : ""}`
+            : order.payment_status
+              ? `Payment ${order.payment_status}`
+              : "",
+        ];
         const done = [
           true,
-          !!order.quotation_no,
-          accepted || rejected,
+          !!order.quotation_no && !rejected,
+          accepted,
           !!order.po_no,
           !!order.order_no,
+          order.order_admin_status === "Approved",
+          complete,
+          complete,
         ];
-        let currentMarked = rejected;
-        return STEPS.map((label, i) => {
-          let state = done[i] ? "done" : "todo";
-          if (i === 2 && rejected) state = "declined";
-          else if (!done[i] && !currentMarked) {
-            state = "current";
-            currentMarked = true;
-          }
-          const detail = [
-            order.request_date,
-            order.quotation_no,
-            rejected ? "Declined" : accepted ? "Accepted" : "",
-            order.po_no,
-            order.order_no,
-          ][i];
-          return `<li class="step ${state}">${label}${detail ? `<small>${esc(detail)}</small>` : ""}</li>`;
+        let currentIndex = done.findIndex((stepDone, index) => {
+          if (stepDone) return false;
+          if (index === 2 && rejected) return false;
+          if (
+            index === 5 &&
+            order.order_admin_status === "Rejected"
+          )
+            return false;
+          if (
+            index >= 6 &&
+            order.order_admin_status === "Rejected"
+          )
+            return false;
+          if (index === 6 && !order.order_no) return false;
+          if (index === 7 && !order.order_no) return false;
+          return true;
+        });
+        if (currentIndex < 0 && rejected) currentIndex = 1;
+
+        return STEPS.map((label, index) => {
+          let state = done[index] ? "done" : "todo";
+          if (index === 2 && rejected) state = "declined";
+          else if (
+            index === 5 &&
+            order.order_admin_status === "Rejected"
+          )
+            state = "declined";
+          else if (index === currentIndex) state = "current";
+          return `<li class="step ${state}">${label}${details[index] ? `<small>${esc(details[index])}</small>` : ""}</li>`;
         }).join("");
       }
 

@@ -8,15 +8,24 @@ if (!$user) respond(['error' => 'Sign in to view your requests'], 401);
 try {
     $pdo = db();
     $sql = "SELECT r.request_no,r.request_date,r.product_code,r.quantity,r.status,
-                   q.quotation_no,po.po_no,so.order_no,
+                   q.quotation_no,q.customer_status quotation_status,
+                   po.po_no,po.status po_status,
+                   COALESCE(so.order_no,po.converted_order_no) order_no,
+                   so.status order_status,so.admin_status order_admin_status,
+                   so.payment_status,
+                   (SELECT d.delivery_no FROM deliveries d WHERE d.order_id=so.so_id ORDER BY d.del_id DESC LIMIT 1) delivery_no,
+                   (SELECT d.status FROM deliveries d WHERE d.order_id=so.so_id ORDER BY d.del_id DESC LIMIT 1) delivery_status,
+                   (SELECT i.invoice_no FROM sales_invoices i WHERE i.order_id=so.so_id ORDER BY i.inv_id DESC LIMIT 1) invoice_no,
+                   (SELECT i.status FROM sales_invoices i WHERE i.order_id=so.so_id ORDER BY i.inv_id DESC LIMIT 1) invoice_status,
                    COALESCE(so.total_amount,po.total_amount,q.total_amount) total_amount,
                    fg.item_name product_name,fg.item_code image_code
             FROM customer_order_requests r
             LEFT JOIN sales_quotations q ON q.sq_id=COALESCE(
                 r.quotation_id,
                 (SELECT q2.sq_id FROM sales_quotations q2
-                 WHERE q2.source_request_id=r.req_id ORDER BY q2.sq_id DESC LIMIT 1)
-            )
+                 WHERE q2.source_request_id=r.req_id AND q2.admin_status='Approved'
+                 ORDER BY q2.sq_id DESC LIMIT 1)
+            ) AND q.admin_status='Approved'
             LEFT JOIN purchase_orders po ON po.quotation_id=q.sq_id AND po.customer_id=r.customer_id
             LEFT JOIN sales_orders so ON so.quotation_id=q.sq_id AND so.customer_id=r.customer_id
             LEFT JOIN inventory_system.finished_goods fg ON BINARY fg.item_code=BINARY r.product_code
