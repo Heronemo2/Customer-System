@@ -1,0 +1,56 @@
+<?php
+require __DIR__ . '/config.php';
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') respond(['error' => 'POST only'], 405);
+$user = current_user();
+if (!$user) respond(['error' => 'Sign in to submit a request', 'auth' => true], 401);
+$input = body();
+$items = $input['items'] ?? [];
+$note = substr(trim((string)($input['note'] ?? '')), 0, 500);
+if (!is_array($items) || !$items) respond(['error' => 'Your request cart is empty'], 422);
+$pdo = db();
+try {
+    $pdo->beginTransaction();
+    $valid = [];
+    foreach ($items as $item) {
+        $productId = (int)($item['product_id'] ?? $item['variant_id'] ?? 0);
+        $quantity = (int)($item['quantity'] ?? $item['qty'] ?? 0);
+        if ($productId < 1 || $quantity < 1) continue;
+        $stmt = $pdo->prepare("SELECT fg_id,item_code,item_name,quantity FROM inventory_system.finished_goods WHERE fg_id=? AND status='Active' LIMIT 1");
+        $stmt->execute([$productId]);
+        $product = $stmt->fetch();
+        if (!$product) throw new RuntimeException('A product in your cart is no longer available.');
+        // Requests do not deduct Inventory stock.
+        $valid[] = ['code' => $product['item_code'], 'qty' => $quantity, 'name' => $product['item_name']];
+    }
+    if (!$valid) throw new RuntimeException('Add at least one valid product and quantity.');
+
+    // customer_order_requests.request_no is UNIQUE and each row represents one product line.
+    // Give every product its own request number to prevent duplicate-key failures on multi-item carts.
+    $requestNumbers = [];
+    $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,quantity,notes,status) VALUES (?,?,CURDATE(),?,?,?,'Pending Quotation')");
+    foreach ($valid as $line) {
+        $next = (int)$pdo->query('SELECT COALESCE(MAX(req_id),0)+1 FROM customer_order_requests')->fetchColumn();
+        do {
+            $requestNo = 'REQ-' . (3000 + $next);
+            $check = $pdo->prepare('SELECT 1 FROM customer_order_requests WHERE request_no=? LIMIT 1');
+            $check->execute([$requestNo]);
+            if (!$check->fetchColumn()) break;
+            $next++;
+        } while (true);
+        $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['qty'], $note]);
+        $requestNumbers[] = $requestNo;
+    }
+    $pdo->commit();
+    respond([
+        'order_number' => $requestNumbers[0] ?? null,
+        'request_number' => $requestNumbers[0] ?? null,
+        'request_numbers' => $requestNumbers,
+        'items_count' => count($valid)
+    ], 201);
+} catch (RuntimeException $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    respond(['error' => $e->getMessage()], 409);
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    respond(['error' => 'Could not submit your request. Please try again later.'], 500);
+}
