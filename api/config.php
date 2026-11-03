@@ -11,7 +11,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
     session_start();
 }
-header('Content-Type: application/json; charset=utf-8');
+if (headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+}
 function db(): PDO {
     static $pdo = null;
     if (!$pdo) $pdo = new PDO('mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4', DB_USER, DB_PASS, [

@@ -15,6 +15,8 @@ $icons = [
     'dashboard' => '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
     'requests'  => '<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>',
     'quotes'    => '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>',
+    'payment'   => '<path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><path d="M4 10h16M8 15h4"/>',
+    'returns'   => '<path d="M7 7h10a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H7l-3 3V7a3 3 0 0 1 3-3h7"/><path d="M9 11h6M9 15h4"/>',
     'progress'  => '<circle cx="5" cy="6" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="18" r="2"/><path d="M6.5 7.5l4 3M13.5 13.5l4 3"/>',
     'account'   => '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
 ];
@@ -24,6 +26,8 @@ $items = [
     ['dashboard', 'dashboard.php',  'Dashboard',             ''],
     ['requests',  'requests.php',   'Recent Requests',       ''],
     ['quotes',    'quotations.php', 'My Orders / Quotations', '<span class="badge" id="quoteCount" hidden>0</span>'],
+    ['payment',   'payment.php',    'Payment',               ''],
+    ['returns',   'returns.php',    'Sales Return',          ''],
     ['progress',  'progress.php',   'Progress Tracker',      ''],
     ['account',   'account.php',    'Account Settings',      ''],
 ];
