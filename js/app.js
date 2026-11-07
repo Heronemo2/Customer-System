@@ -43,8 +43,12 @@
       data
         ? {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          ...(data instanceof FormData
+            ? { body: data }
+            : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data),
+            }),
         }
         : {},
     );
@@ -277,6 +281,9 @@
         .join("")
         .toUpperCase();
       $("#userAvatar").textContent = initials;
+      if (user.avatar_path) {
+        $("#userAvatar").innerHTML = `<img src="${esc(user.avatar_path)}" alt="">`;
+      }
       $("#userName").textContent = name;
       $("#userEmail").textContent = user.email || user.username || "";
       api("api/quotations.php")
@@ -321,18 +328,49 @@
         (async () => {
           try {
             const user = await requireLogin();
-            profileHost.innerHTML = `<form id="profileForm" class="box profile-form"><h2>Personal details</h2><label>Full name<input name="name" value="${esc(user.name)}" autocomplete="name" required></label><label>Email address<input name="email" type="email" value="${esc(user.email)}" autocomplete="email"></label><label>Phone number<input name="phone" value="${esc(user.phone)}" autocomplete="tel"></label><label>Street address<input name="address" value="${esc(user.address)}" autocomplete="street-address"></label><div class="two"><label>City<input name="city" value="${esc(user.city)}" autocomplete="address-level2"></label><label>Province<input name="province" value="${esc(user.province)}" autocomplete="address-level1"></label></div><p id="profileMsg" class="muted" role="status"></p><button class="btn">Save changes</button></form>`;
+            const initials = user.name
+              .trim()
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((part) => part[0])
+              .join("")
+              .toUpperCase();
+            const avatarPreview = user.avatar_path
+              ? `<img id="profileAvatar" src="${esc(user.avatar_path)}" alt="Profile photo">`
+              : `<span id="profileAvatar">${esc(initials)}</span>`;
+            profileHost.innerHTML = `<form id="profileForm" class="box profile-form" enctype="multipart/form-data"><h2>Personal details</h2><div class="profile-photo-field"><div class="profile-photo-preview" id="profilePhotoPreview">${avatarPreview}</div><label>Profile photo<input name="avatar" id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG, or WebP · maximum 2 MB</small></label></div><label>Full name<input name="name" value="${esc(user.name)}" autocomplete="name" required></label><label>Email address<input name="email" type="email" value="${esc(user.email)}" autocomplete="email"></label><label>Phone number<input name="phone" value="${esc(user.phone)}" autocomplete="tel"></label><label>Street address<input name="address" value="${esc(user.address)}" autocomplete="street-address"></label><div class="two"><label>City<input name="city" value="${esc(user.city)}" autocomplete="address-level2"></label><label>Province<input name="province" value="${esc(user.province)}" autocomplete="address-level1"></label></div><p id="profileMsg" class="muted" role="status"></p><button class="btn">Save changes</button></form>`;
+            $("#profilePhotoInput").onchange = (event) => {
+              const file = event.target.files[0];
+              if (!file) return;
+              if (file.size > 2 * 1024 * 1024) {
+                event.target.value = "";
+                $("#profileMsg").textContent =
+                  "Profile photos must be 2 MB or smaller.";
+                return;
+              }
+              const previewUrl = URL.createObjectURL(file);
+              $("#profilePhotoPreview").innerHTML =
+                `<img id="profileAvatar" src="${previewUrl}" alt="Profile photo preview">`;
+            };
             $("#profileForm").onsubmit = async (event) => {
               event.preventDefault();
               const form = event.currentTarget;
               const button = form.querySelector("button");
               button.disabled = true;
               try {
-                const result = await api(
-                  "api/profile.php",
-                  Object.fromEntries(new FormData(form)),
-                );
+                const result = await api("api/profile.php", new FormData(form));
                 $("#profileMsg").textContent = result.message;
+                if (result.avatar_path) {
+                  $("#profilePhotoPreview").innerHTML =
+                    `<img id="profileAvatar" src="${esc(result.avatar_path)}?v=${Date.now()}" alt="Profile photo">`;
+                  if ($("#userAvatar")) {
+                    $("#userAvatar").innerHTML =
+                      `<img src="${esc(result.avatar_path)}?v=${Date.now()}" alt="">`;
+                  }
+                }
+                if (result.name && $("#userName")) {
+                  $("#userName").textContent = result.name;
+                }
                 toast(result.message);
               } catch (error) {
                 $("#profileMsg").textContent = error.message;
@@ -534,11 +572,17 @@
         $("#submit").textContent =
           m === "signup" ? "Create account" : "Sign in";
         const password = $("#f [name=password]");
+        const emailOrUsername = $("#emailOrUsername");
         password.autocomplete =
           m === "signup" ? "new-password" : "current-password";
         password.minLength = m === "signup" ? 8 : 0;
         password.placeholder =
           m === "signup" ? "Password (8+ characters)" : "Password";
+        emailOrUsername.type = m === "signup" ? "email" : "text";
+        emailOrUsername.placeholder =
+          m === "signup" ? "Email address" : "Username or email";
+        emailOrUsername.autocomplete =
+          m === "signup" ? "email" : "username";
         $("#err").textContent = "";
       }
       $("#msg").textContent = param("msg");
@@ -557,13 +601,32 @@
           (!f.first_name?.trim() || !f.last_name?.trim())
         )
           return ($("#err").textContent = "Enter your first and last name");
+        if (mode === "signup") {
+          f.username = (f.username || "").trim();
+          f.email = (f.email || "").trim();
+          if (!/^[\p{L}\p{N}._-]{3,60}$/u.test(f.username)) {
+            $("#err").textContent =
+              "Enter a username with 3–60 letters or numbers; dots, underscores, and hyphens are also allowed.";
+            return;
+          }
+        } else {
+          f.email = (f.email || "").trim();
+        }
         $("#submit").disabled = true;
         try {
-          await api(
+          const result = await api(
             "api/auth.php?action=" + (mode === "signup" ? "register" : "login"),
             f,
           );
-          location.href = next;
+          if (mode === "signup") {
+            const message = result.message || "Your account request was submitted for verification.";
+            e.target.reset();
+            setMode("login");
+            $("#submit").disabled = false;
+            $("#msg").textContent = message;
+          } else {
+            location.href = next;
+          }
         } catch (x) {
           $("#err").textContent = x.message;
           $("#submit").disabled = false;

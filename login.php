@@ -47,9 +47,11 @@
           </div>
           <input
             name="username"
-            placeholder="Username"
+            placeholder="Username (3–60 letters, numbers, dots, underscores, or hyphens)"
             autocomplete="username"
             class="su su-required"
+            minlength="3"
+            maxlength="60"
             hidden
           />
           <input
@@ -75,6 +77,7 @@
           </div>
           <input
             name="email"
+            id="emailOrUsername"
             type="text"
             placeholder="Username or email"
             required

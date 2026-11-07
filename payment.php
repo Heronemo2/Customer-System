@@ -135,6 +135,7 @@ $rows = $stmt->fetchAll();
                     <th style="padding:12px 8px;">Paid</th>
                     <th style="padding:12px 8px;">Balance</th>
                     <th style="padding:12px 8px;">Status</th>
+                    <th style="padding:12px 8px;">Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -151,6 +152,7 @@ $rows = $stmt->fetchAll();
                           <?= htmlspecialchars($row['status']) ?>
                         </span>
                       </td>
+                      <td style="padding:12px 8px;"><a href="invoices.php?id=<?= (int)$row['inv_id'] ?>">View Invoice</a></td>
                     </tr>
                   <?php endforeach; ?>
                 </tbody>

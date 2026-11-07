@@ -28,11 +28,11 @@ function body(): array { $d = json_decode(file_get_contents('php://input'), true
 function current_user(): ?array {
     if (empty($_SESSION['customer_portal_user']) || ($_SESSION['customer_portal_user']['role'] ?? '') !== 'Customer') return null;
     $u = $_SESSION['customer_portal_user'];
-    $s = db()->prepare('SELECT u.user_id, u.full_name, u.username, u.role, u.customer_id, c.email, c.phone, c.address, c.city, c.province FROM users u JOIN customers c ON c.cus_id=u.customer_id WHERE u.user_id=? AND u.role="Customer" AND u.status="Active" LIMIT 1');
+    $s = db()->prepare('SELECT u.user_id, u.full_name, u.username, u.role, u.customer_id, u.avatar_path, c.email, c.phone, c.address, c.city, c.province FROM users u JOIN customers c ON c.cus_id=u.customer_id WHERE u.user_id=? AND u.role="Customer" AND u.status="Active" AND u.account_status="Approved" AND c.status="Active" LIMIT 1');
     $s->execute([(int)$u['id']]); $r = $s->fetch();
     if (!$r) return null;
     $parts = preg_split('/\s+/', trim($r['full_name']), 2);
-    return ['id'=>(int)$r['user_id'], 'customer_id'=>(int)$r['customer_id'], 'first_name'=>$parts[0] ?? '', 'last_name'=>$parts[1] ?? '', 'name'=>$r['full_name'], 'username'=>$r['username'], 'email'=>$r['email'] ?? '', 'phone'=>$r['phone'] ?? '', 'address'=>$r['address'] ?? '', 'city'=>$r['city'] ?? '', 'province'=>$r['province'] ?? ''];
+    return ['id'=>(int)$r['user_id'], 'customer_id'=>(int)$r['customer_id'], 'first_name'=>$parts[0] ?? '', 'last_name'=>$parts[1] ?? '', 'name'=>$r['full_name'], 'username'=>$r['username'], 'avatar_path'=>$r['avatar_path'] ?? '', 'email'=>$r['email'] ?? '', 'phone'=>$r['phone'] ?? '', 'address'=>$r['address'] ?? '', 'city'=>$r['city'] ?? '', 'province'=>$r['province'] ?? ''];
 }
 function customer_id(): int { $u=current_user(); return (int)($u['customer_id'] ?? 0); }
 function next_request_no(PDO $pdo): string {

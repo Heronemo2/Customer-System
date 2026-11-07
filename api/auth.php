@@ -7,7 +7,7 @@ $in = body();
 $pdo = db();
 if ($act === 'register') {
     $full = trim(($in['first_name'] ?? '') . ' ' . ($in['last_name'] ?? ''));
-    $username = trim($in['username'] ?? '');
+    $username = is_string($in['username'] ?? null) ? trim($in['username']) : '';
     $email = strtolower(trim($in['email'] ?? ''));
     $pw = (string)($in['password'] ?? '');
     $phone = trim($in['phone'] ?? '');
@@ -15,7 +15,7 @@ if ($act === 'register') {
     $city = trim($in['city'] ?? '');
     $province = trim($in['province'] ?? '');
     if (trim($in['first_name'] ?? '') === '' || trim($in['last_name'] ?? '') === '') respond(['error' => 'Enter your first and last name'], 422);
-    if (!preg_match('/^[A-Za-z0-9._-]{3,60}$/', $username)) respond(['error' => 'Username must be 3–60 characters using letters, numbers, dots, underscores or hyphens'], 422);
+    if (preg_match('/^[\p{L}\p{N}._-]{3,60}$/u', $username) !== 1) respond(['error' => 'Enter a username with 3–60 letters or numbers; dots, underscores, and hyphens are also allowed.'], 422);
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid email address'], 422);
     if (strlen($pw) < 8) respond(['error' => 'Password must be at least 8 characters'], 422);
     if (!$phone || !$address || !$city || !$province) respond(['error' => 'Complete your phone and address details'], 422);
@@ -32,16 +32,16 @@ if ($act === 'register') {
             $s = $pdo->prepare('SELECT 1 FROM customers WHERE customer_code=?');
             $s->execute([$code]);
         } while ($s->fetchColumn());
-        $s = $pdo->prepare('INSERT INTO customers (customer_code,customer_name,phone,email,address,city,province,status) VALUES (?,?,?,?,?,?,?,"Active")');
+        $s = $pdo->prepare('INSERT INTO customers (customer_code,customer_name,phone,email,address,city,province,status) VALUES (?,?,?,?,?,?,?,"Inactive")');
         $s->execute([$code, $full, $phone, $email, $address, $city, $province]);
         $cid = (int)$pdo->lastInsertId();
-        $s = $pdo->prepare('INSERT INTO users (full_name,username,password,role,customer_id,status) VALUES (?,?,?,"Customer",?,"Active")');
+        $s = $pdo->prepare('INSERT INTO users (full_name,username,password,role,customer_id,status,account_status) VALUES (?,?,?,"Customer",?,"Active","Pending")');
         $s->execute([$full, $username, password_hash($pw, PASSWORD_DEFAULT), $cid]);
-        $uid = (int)$pdo->lastInsertId();
         $pdo->commit();
-        session_regenerate_id(true);
-        $_SESSION['customer_portal_user'] = ['id' => $uid, 'customer_id' => $cid, 'role' => 'Customer'];
-        respond(['user' => current_user()], 201);
+        respond([
+            'pending' => true,
+            'message' => 'Your account request was submitted. You can sign in after a Sales Admin verifies your account.'
+        ], 201);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         respond(['error' => 'Could not create your account. Please try again later.'], 500);
@@ -50,10 +50,13 @@ if ($act === 'register') {
 if ($act === 'login') {
     $emailOrUser = trim($in['email'] ?? '');
     $pw = (string)($in['password'] ?? '');
-    $s = $pdo->prepare('SELECT u.user_id id,u.full_name name,u.username,u.password,u.role,u.customer_id FROM users u LEFT JOIN customers c ON c.cus_id=u.customer_id WHERE (u.username=? OR c.email=?) AND u.status="Active" AND u.role="Customer" LIMIT 1');
+    $s = $pdo->prepare('SELECT u.user_id id,u.full_name name,u.username,u.password,u.role,u.customer_id,u.status,u.account_status,c.status customer_status FROM users u LEFT JOIN customers c ON c.cus_id=u.customer_id WHERE (u.username=? OR c.email=?) AND u.role="Customer" LIMIT 1');
     $s->execute([$emailOrUser, strtolower($emailOrUser)]);
     $u = $s->fetch();
     if (!$u || !password_verify($pw, $u['password']) || empty($u['customer_id'])) respond(['error' => 'Username/email or password is incorrect'], 401);
+    if ($u['account_status'] === 'Pending') respond(['error' => 'Your account is pending Sales Admin verification. Please try again after it has been approved.'], 403);
+    if ($u['account_status'] === 'Rejected') respond(['error' => 'Your account request was not approved. Please contact Sales for assistance.'], 403);
+    if ($u['status'] !== 'Active' || $u['customer_status'] !== 'Active') respond(['error' => 'Username/email or password is incorrect'], 401);
     session_regenerate_id(true);
     unset($u['password']);
     $_SESSION['customer_portal_user'] = $u;

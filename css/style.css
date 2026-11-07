@@ -193,6 +193,12 @@ h4 {
   font-size: 0.82rem;
   font-weight: 800;
 }
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
 .signout {
   font: inherit;
   font-weight: 700;
@@ -633,6 +639,40 @@ a.card:hover .shot img {
   display: grid;
   gap: 6px;
   font-weight: 700;
+}
+.profile-photo-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.profile-photo-preview {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+.profile-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-photo-field small {
+  color: var(--muted);
+  font-weight: 400;
+}
+@media (max-width: 520px) {
+  .profile-photo-field {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* ---------- requests, quotations, tracker ---------- */
