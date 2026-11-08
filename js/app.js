@@ -1,5 +1,5 @@
 (() => {
-  /* STRIDE storefront UI helpers. */
+  /* Quick Step storefront UI helpers. */
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const peso = (n) =>
@@ -8,6 +8,19 @@
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     });
+  const summaryTotals = (lines) => {
+    const subtotal = lines.reduce((sum, line) => {
+      const unitPrice = Number(line?.p?.price ?? line?.p?.sale_price ?? 0);
+      const qty = Number(line?.qty ?? 0);
+      return sum + unitPrice * qty;
+    }, 0);
+    const shipping = 0;
+    return {
+      subtotal,
+      shipping,
+      total: subtotal + shipping,
+    };
+  };
   const esc = (s) =>
     String(s ?? "").replace(
       /[&<>"']/g,
@@ -213,15 +226,44 @@
     return `<article class="order"><header><div><strong>${esc(order.request_no || order.order_number || "Order request")}</strong><br><span class="muted">${esc(order.request_date || order.created_at || "")}</span></div><span class="status">${esc(status)}</span></header>${items}<p class="muted">Quotation: ${esc(order.quotation_no || "Not available yet")}${fulfillment ? ` · ${esc(fulfillment)}` : ""}</p><p class="order-links"><a href="progress.php#${encodeURIComponent(order.request_no || "")}">Track progress →</a></p></article>`;
   }
 
+  const isExpiredQuotation = (quotation) => {
+    if (quotation.customer_status !== "Pending" || !quotation.valid_until) {
+      return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const validUntil = new Date(`${quotation.valid_until}T00:00:00`);
+    return validUntil < today;
+  };
+
   function quotationHtml(quotation, { actions = true, order = null } = {}) {
-    const pending = quotation.customer_status === "Pending";
-    return `<article class="order"><header><div><strong>${esc(quotation.quotation_no)}</strong><br><span class="muted">${esc(quotation.product_code)} · ${esc(quotation.quotation_date || "")}</span></div><strong>${peso(quotation.total_amount)}</strong></header><p>Quantity: ${esc(quotation.quantity)} · Status: <span class="status">${esc(quotation.customer_status)}</span>${quotation.valid_until ? ` · Valid until ${esc(quotation.valid_until)}` : ""}</p>${order && (order.po_no || order.order_no) ? `<p class="muted">Purchase order: ${esc(order.po_no || "—")} · Order: ${esc(order.order_no || "—")}</p>` : ""}<div class="cta"><a class="btn dark" href="view_quotation.php?id=${encodeURIComponent(quotation.sq_id)}" target="_blank" rel="noopener">View quotation</a>${actions && pending ? `<button class="btn" data-approve="${quotation.sq_id}">Accept quotation</button><button class="btn dark" data-reject="${quotation.sq_id}">Decline</button>` : ""}</div></article>`;
+    const expired = isExpiredQuotation(quotation);
+    const pending = quotation.customer_status === "Pending" && !expired;
+    const statusText = expired ? "Expired" : quotation.customer_status;
+    return `<article class="order"><header><div><strong>${esc(quotation.quotation_no)}</strong><br><span class="muted">${esc(quotation.product_code)} · ${esc(quotation.quotation_date || "")}</span></div><strong>${peso(quotation.total_amount)}</strong></header><p>Quantity: ${esc(quotation.quantity)} · Status: <span class="status">${esc(statusText)}</span>${quotation.valid_until ? ` · Valid until ${esc(quotation.valid_until)}` : ""}</p>${order && (order.po_no || order.order_no) ? `<p class="muted">Purchase order: ${esc(order.po_no || "—")} · Order: ${esc(order.order_no || "—")}</p>` : ""}<div class="cta"><a class="btn dark" href="view_quotation.php?id=${encodeURIComponent(quotation.sq_id)}" target="_blank" rel="noopener">View quotation</a>${actions && pending ? `<button class="btn" data-approve="${quotation.sq_id}">Accept quotation</button><button class="btn dark" data-reject="${quotation.sq_id}">Decline</button>` : ""}${actions && expired ? `<button class="btn dark" data-delete="${quotation.sq_id}">Delete quotation</button>` : ""}</div></article>`;
   }
 
   function bindQuotationDecisions(host, onChange) {
     host.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-approve],[data-reject]");
+      const button = event.target.closest("[data-approve],[data-reject],[data-delete]");
       if (!button) return;
+      const quoteId = +(button.dataset.approve || button.dataset.reject || button.dataset.delete);
+      if (button.dataset.delete) {
+        if (!confirm("Delete this expired quotation?")) return;
+        button.disabled = true;
+        try {
+          const result = await api("api/quotations.php", {
+            action: "delete",
+            quotation_id: quoteId,
+          });
+          toast(result.message);
+          onChange();
+        } catch (error) {
+          toast(error.message);
+          button.disabled = false;
+        }
+        return;
+      }
       const decision = button.dataset.approve ? "Approved" : "Rejected";
       if (
         !confirm(
@@ -232,7 +274,7 @@
       button.disabled = true;
       try {
         const result = await api("api/quotations.php", {
-          quotation_id: +(button.dataset.approve || button.dataset.reject),
+          quotation_id: quoteId,
           decision,
         });
         toast(result.message);
@@ -289,13 +331,14 @@
       api("api/quotations.php")
         .then(({ quotations }) => {
           const pending = quotations.filter(
-            (quotation) => quotation.customer_status === "Pending",
+            (quotation) =>
+              quotation.customer_status === "Pending" &&
+              !isExpiredQuotation(quotation),
           ).length;
           const badge = $("#quoteCount");
-          if (badge) {
-            badge.textContent = pending;
-            badge.hidden = !pending;
-          }
+          if (!badge) return;
+          badge.textContent = String(pending);
+          badge.hidden = pending === 0;
         })
         .catch(() => {});
     });
@@ -403,9 +446,10 @@
               `<div class="line"><a href="product.php?id=${l.p.id}"><img src="${esc(l.p.image_url)}" alt=""></a><div><strong>${esc(l.p.name)}</strong><br><span class="muted">Code ${esc(l.p.sku)}</span><div class="qty"><button data-d="-1" data-v="${l.v.id}" aria-label="Decrease">−</button>${l.qty}<button data-d="1" data-v="${l.v.id}" aria-label="Increase">+</button></div><button class="rm" data-rm="${l.v.id}">Remove</button></div><strong>Price to be confirmed</strong></div>`,
           ).join("")
           : '<div class="box"><p>Your cart is empty.</p><a class="btn" href="dashboard.php">Browse products</a></div>';
-        $("#sSub").textContent = "To be confirmed";
-        $("#sShip").textContent = "To be confirmed";
-        $("#sTot").textContent = "To be confirmed";
+        const totals = summaryTotals(L);
+        $("#sSub").textContent = peso(totals.subtotal);
+        $("#sShip").textContent = peso(totals.shipping);
+        $("#sTot").textContent = peso(totals.total);
         $("#go").style.display = L.length ? "" : "none";
         $("#note").textContent = L.length
           ? "We’ll confirm the final price and availability before you accept the order."
@@ -437,9 +481,10 @@
               `<div class="oi"><img src="${esc(line.p.image_url)}" alt=""><div class="oi-info"><strong>${esc(line.p.name)}</strong><br><span class="muted">${esc(line.p.sku)} · Qty ${line.qty}</span></div><span>Price pending</span></div>`,
           )
           .join("");
-        $("#sSub").textContent = "To be confirmed";
-        $("#sShip").textContent = "To be confirmed";
-        $("#sTot").textContent = "Confirmed before you accept";
+        const totals = summaryTotals(lines);
+        $("#sSub").textContent = peso(totals.subtotal);
+        $("#sShip").textContent = peso(totals.shipping);
+        $("#sTot").textContent = peso(totals.total);
         form.onsubmit = async (event) => {
           event.preventDefault();
           const button = $("#place");
@@ -646,7 +691,7 @@
           ).products[0];
           if (!P) throw 0;
           V = P.variants[0];
-          document.title = P.name + " — STRIDE";
+          document.title = P.name + " — Quick Step";
           $("#pdp").innerHTML =
             `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price">Request a quotation</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">Sales will review inventory availability after your request.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn" ${V.stock < 1 ? "disabled" : ""}>Add to request</button><p class="muted">Price and final availability will be confirmed by Sales in your quotation.</p></div></div>`;
           $("#addBtn").onclick = async () => {
@@ -675,13 +720,16 @@
       const FILTERS = [
         ["all", "All"],
         ["pending", "Needs review"],
+        ["expired", "Expired"],
         ["Approved", "Accepted"],
         ["Rejected", "Declined"],
       ];
-      const matches = (quotation, filter) =>
-        filter === "all" ||
-        quotation.customer_status ===
-          (filter === "pending" ? "Pending" : filter);
+      const matches = (quotation, filter) => {
+        if (filter === "all") return true;
+        if (filter === "pending") return quotation.customer_status === "Pending" && !isExpiredQuotation(quotation);
+        if (filter === "expired") return isExpiredQuotation(quotation);
+        return quotation.customer_status === filter;
+      };
       let filter = FILTERS.some(([key]) => key === param("filter"))
         ? param("filter")
         : "all";

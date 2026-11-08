@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign in — STRIDE</title>
+    <title>Sign in — Quick Step</title>
     <link rel="icon" href="assets/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
@@ -15,9 +15,9 @@
   <body>
     <div class="auth-wrap">
       <aside class="auth-art">
-        <a class="logo" href="login.php">STRIDE</a>
+        <a class="logo" href="login.php">Quick Step</a>
         <div>
-          <h2>Join the<br />stride.</h2>
+          <h2>Join the<br />Quick Step.</h2>
           <p>
             Browse products, keep your order requests organized, review prices,
             and track progress from your customer dashboard.

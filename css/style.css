@@ -86,11 +86,17 @@ h4 {
   gap: 8px;
 }
 .logo::before {
-  content: "";
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: #fff url("../assets/favicon.svg") center/cover;
+  content: "Q";
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 900;
+  font-size: 1.25rem;
+  line-height: 1;
+  display: inline-grid;
+  place-items: center;
 }
 .sidebar .logo {
   padding: 0 10px;

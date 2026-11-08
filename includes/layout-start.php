@@ -6,7 +6,7 @@
  */
 require_once __DIR__ . '/customer-page.php';
 
-$pageTitle = $pageTitle ?? 'STRIDE';
+$pageTitle = $pageTitle ?? 'Quick Step';
 $active = $active ?? '';
 $root = dirname(__DIR__);
 
@@ -23,10 +23,10 @@ $icons = [
 ];
 
 $items = [
-    ['cart',      'cart.php',       'Request Cart',          '<span class="badge" id="cartCount" hidden>0</span>'],
     ['dashboard', 'dashboard.php',  'Dashboard',             ''],
+    ['cart',      'cart.php',       'Request Cart',          '<span class="badge" id="cartCount" hidden>0</span>'],
     ['requests',  'requests.php',   'Recent Requests',       ''],
-    ['quotes',    'quotations.php', 'My Orders / Quotations', '<span class="badge" id="quoteCount" hidden>0</span>'],
+    ['quotes',    'quotations.php', 'My Orders', '<span class="badge" id="quoteCount" hidden>0</span>'],
     ['invoice',   'invoices.php',   'Sales Invoices',         ''],
     ['payment',   'payment.php',    'Payment',               ''],
     ['returns',   'returns.php',    'Sales Return',          ''],
@@ -39,7 +39,7 @@ $items = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> — STRIDE</title>
+    <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> — Quick Step</title>
     <link rel="icon" href="assets/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
@@ -51,7 +51,7 @@ $items = [
   <body>
     <div class="app">
       <aside class="sidebar" id="sidebar" aria-label="Customer navigation">
-        <a class="logo" href="dashboard.php" aria-label="STRIDE dashboard">STRIDE</a>
+        <a class="logo" href="dashboard.php" aria-label="Quick Step dashboard">Quick Step</a>
         <nav class="side-nav">
 <?php foreach ($items as [$key, $href, $label, $extra]): ?>
           <a href="<?= $href ?>" class="<?= $active === $key ? 'on' : '' ?>"<?= $active === $key ? ' aria-current="page"' : '' ?>>
@@ -78,6 +78,6 @@ $items = [
           <button type="button" class="menu-btn" id="menuBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
-          <a class="logo" href="dashboard.php">STRIDE</a>
+          <a class="logo" href="dashboard.php">Quick Step</a>
         </header>
         <main class="content">

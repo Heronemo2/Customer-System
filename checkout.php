@@ -19,7 +19,7 @@ require __DIR__ . '/includes/layout-start.php';
             <div class="box">
               <h2>Order summary</h2>
               <div id="lines"></div>
-              <div class="sumrow"><span>Price</span><span id="sSub"></span></div>
+              <div class="sumrow"><span>Subtotal</span><span id="sSub"></span></div>
               <div class="sumrow"><span>Shipping</span><span id="sShip"></span></div>
               <div class="sumrow total"><span>Total</span><span id="sTot"></span></div>
               <p id="err" class="error" role="alert"></p>

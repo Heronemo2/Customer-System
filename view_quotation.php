@@ -14,7 +14,7 @@ if ($id < 1) {
 }
 try {
     $pdo = db();
-    $st = $pdo->prepare("SELECT q.quotation_no,q.quotation_date,q.valid_until,q.product_code,q.fg_id,q.quantity,q.total_amount,q.inventory_status,q.customer_status,q.admin_status,c.customer_name,c.customer_code,c.email,c.phone,c.address,c.city,c.province,COALESCE(fg.item_name,q.product_code,'Product') product_name,COALESCE(fg.unit,'pcs') unit FROM sales_quotations q JOIN customers c ON c.cus_id=q.customer_id LEFT JOIN inventory_system.finished_goods fg ON fg.fg_id=q.fg_id WHERE q.sq_id=? AND q.customer_id=? AND q.admin_status='Approved' LIMIT 1");
+    $st = $pdo->prepare("SELECT q.quotation_no,q.quotation_date,q.valid_until,q.product_code,q.fg_id,q.quantity,q.total_amount,c.customer_name,c.email,c.phone,c.address,c.city,c.province,COALESCE(fg.item_name,q.product_code,'Product') product_name FROM sales_quotations q JOIN customers c ON c.cus_id=q.customer_id LEFT JOIN inventory_system.finished_goods fg ON fg.fg_id=q.fg_id WHERE q.sq_id=? AND q.customer_id=? AND q.admin_status='Approved' LIMIT 1");
     $st->execute([$id, (int)$user['customer_id']]);
     $q = $st->fetch();
 } catch (Throwable $e) {
@@ -45,7 +45,7 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title><?= h($q['quotation_no']) ?> — STRIDE Quotation</title>
+    <title><?= h($q['quotation_no']) ?> — Sales Quotation</title>
     <style>
         * {
             box-sizing: border-box
@@ -53,13 +53,13 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
 
         body {
             margin: 0;
-            background: #f3f5f7;
-            color: #20252b;
-            font: 15px/1.5 Arial, sans-serif
+            background: #e9ecef;
+            color: #17191c;
+            font: 14px/1.5 Arial, sans-serif
         }
 
         .toolbar {
-            max-width: 900px;
+            max-width: 768px;
             margin: 22px auto 12px;
             display: flex;
             justify-content: space-between;
@@ -71,7 +71,7 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
             border: 0;
             border-radius: 7px;
             padding: 10px 15px;
-            background: #1f4e79;
+            background: #17191c;
             color: white;
             text-decoration: none;
             font-weight: bold;
@@ -79,70 +79,72 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
         }
 
         .sheet {
-            max-width: 900px;
+            max-width: 768px;
             margin: 0 auto 28px;
             background: #fff;
-            padding: 48px 54px;
+            padding: 48px 62px;
             box-shadow: 0 5px 24px #18243314
         }
 
         .head {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr 190px;
             gap: 25px;
-            border-bottom: 2px solid #20252b;
-            padding-bottom: 24px
+            border-bottom: 1px solid #333;
+            padding-bottom: 16px
         }
 
         .brand {
-            font-size: 25px;
+            font-size: 30px;
             font-weight: 800;
-            letter-spacing: 1px
+            letter-spacing: .3px
         }
 
         .label {
-            font-size: 12px;
-            letter-spacing: 2px;
-            color: #626b75;
+            font-size: 14px;
+            letter-spacing: .2px;
+            color: #17191c;
             font-weight: 700
         }
 
-        h1 {
-            margin: 10px 0 0;
-            font-size: 28px
-        }
-
         .meta {
-            text-align: right
+            text-align: left;
+            min-width: 0
         }
 
         .meta strong {
             display: block;
-            font-size: 18px
+            font-size: 14px;
+            margin-bottom: 5px
+        }
+
+        .valid-until {
+            grid-column: 1 / -1;
+            margin-top: -14px
         }
 
         .details {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 28px;
-            margin: 30px 0
+            margin: 20px 0 28px
         }
 
         .details h2 {
             font-size: 12px;
-            letter-spacing: 1px;
-            color: #626b75;
-            margin: 0 0 8px
+            letter-spacing: .2px;
+            color: #17191c;
+            margin: 0 0 6px
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 28px
+            margin-top: 0
         }
 
         th {
-            background: #f0f3f6;
+            background: #eee;
             text-align: left;
             font-size: 12px;
             text-transform: uppercase
@@ -150,8 +152,8 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
 
         th,
         td {
-            padding: 13px 12px;
-            border-bottom: 1px solid #d9dee4
+            padding: 12px;
+            border-bottom: 1px solid #999
         }
 
         .num {
@@ -159,38 +161,25 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
         }
 
         .total {
-            margin: 20px 0 0 auto;
-            max-width: 300px
-        }
-
-        .total div {
-            display: flex;
-            justify-content: space-between;
-            padding: 7px 0
+            margin: 16px 0 0 auto;
+            max-width: 330px;
+            text-align: right
         }
 
         .grand {
-            border-top: 2px solid #20252b;
             font-size: 20px;
             font-weight: 800;
-            margin-top: 6px;
-            padding-top: 14px !important
-        }
-
-        .status {
-            display: inline-block;
-            border: 1px solid #d9dee4;
-            border-radius: 20px;
-            padding: 3px 10px;
-            font-size: 12px
+            margin-top: 6px
         }
 
         .note {
-            margin-top: 38px;
-            padding-top: 18px;
-            border-top: 1px solid #d9dee4;
-            color: #626b75;
+            margin-top: 34px;
+            color: #17191c;
             font-size: 13px
+        }
+
+        .note p {
+            margin: 8px 0
         }
 
         @media(max-width:650px) {
@@ -205,15 +194,27 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
             }
 
             .head {
-                flex-direction: column
+                grid-template-columns: 1fr;
+                gap: 14px
             }
 
             .meta {
                 text-align: left
             }
 
+            .valid-until {
+                grid-column: 1;
+                margin-top: 0
+            }
+
             .details {
                 grid-template-columns: 1fr
+            }
+
+            th,
+            td {
+                padding: 9px 6px;
+                font-size: 12px
             }
         }
 
@@ -229,7 +230,7 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
             .sheet {
                 max-width: none;
                 margin: 0;
-                padding: 0;
+                padding: 48px 62px;
                 box-shadow: none
             }
         }
@@ -237,51 +238,50 @@ $unitPrice = $qty > 0 ? $total / $qty : 0;
 </head>
 
 <body>
-    <div class="toolbar"><a href="account.php">← Back to My Account</a><button onclick="window.print()" type="button">Print / Save as PDF</button></div>
+    <div class="toolbar"><a href="quotations.php">← Back to My Orders</a><button onclick="window.print()" type="button">Print / Save as PDF</button></div>
     <main class="sheet">
         <header class="head">
             <div>
-                <div class="brand">STRIDE</div>
-                <div class="label">CUSTOMER QUOTATION</div>
-                <h1>Quotation</h1>
+                <div class="brand">TEAM SALES</div>
+                <div class="label">SALES QUOTATION</div>
             </div>
             <div class="meta"><strong><?= h($q['quotation_no']) ?></strong>
                 <div>Date: <?= qdate($q['quotation_date']) ?></div>
-                <div>Valid until: <?= qdate($q['valid_until']) ?></div>
-                <div style="margin-top:9px"><span class="status"><?= h($q['customer_status']) ?></span></div>
             </div>
+            <div class="valid-until">Valid Until: <?= qdate($q['valid_until']) ?></div>
         </header>
         <section class="details">
             <div>
-                <h2>PREPARED FOR</h2><strong><?= h($q['customer_name']) ?></strong><br><?= h($q['customer_code']) ?><br><?= h(trim(($q['address'] ?? '') . ' ' . ($q['city'] ?? '') . ' ' . ($q['province'] ?? ''))) ?><br><?= h($q['email'] ?? '') ?><br><?= h($q['phone'] ?? '') ?>
-            </div>
-            <div>
-                <h2>QUOTATION DETAILS</h2>Product code: <strong><?= h($q['product_code']) ?></strong><br>Inventory review: <span class="status"><?= h($q['inventory_status']) ?></span><br>Prepared by: <strong>Sales Department</strong>
+                <h2>CUSTOMER</h2><strong><?= h($q['customer_name']) ?></strong><br><?= h(trim(($q['address'] ?? '') . ' ' . ($q['city'] ?? '') . ' ' . ($q['province'] ?? ''))) ?><br>Email: <?= h($q['email'] ?? '—') ?> &nbsp; Phone: <?= h($q['phone'] ?? '—') ?>
             </div>
         </section>
         <table>
             <thead>
                 <tr>
-                    <th>Product / Description</th>
-                    <th class="num">Quantity</th>
-                    <th class="num">Unit price</th>
-                    <th class="num">Amount</th>
+                    <th>Item</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Unit Price</th>
+                    <th class="num">Total</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><strong><?= h($q['product_name']) ?></strong><br><small>Code: <?= h($q['product_code']) ?> · Unit: <?= h($q['unit']) ?></small></td>
+                    <td><strong><?= h($q['product_name']) ?></strong></td>
                     <td class="num"><?= number_format($qty) ?></td>
-                    <td class="num">₱<?= number_format($unitPrice, 2) ?></td>
-                    <td class="num">₱<?= number_format($total, 2) ?></td>
+                    <td class="num">PHP <?= number_format($unitPrice, 2) ?></td>
+                    <td class="num"><strong>PHP <?= number_format($total, 2) ?></strong></td>
                 </tr>
             </tbody>
         </table>
         <div class="total">
-            <div><span>Subtotal</span><strong>₱<?= number_format($total, 2) ?></strong></div>
-            <div class="grand"><span>Total</span><span>₱<?= number_format($total, 2) ?></span></div>
+            <div class="grand">TOTAL: PHP <?= number_format($total, 2) ?></div>
         </div>
-        <div class="note">Review this quotation in your account and use the Accept or Decline action there. Once accepted, your order will continue through processing.</div>
+        <div class="note">
+            <strong>CUSTOMER APPROVAL</strong>
+            <p>This quotation is subject to customer approval. Once approved,<br> a Purchase Order will be generated in the Sales module.</p>
+            <p>Review and respond to this quotation in your customer account.</p>
+            <p>Thank you for choosing Team Sales.</p>
+        </div>
     </main>
 </body>
 

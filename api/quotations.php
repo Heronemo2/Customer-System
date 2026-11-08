@@ -3,11 +3,42 @@ require __DIR__ . '/config.php';
 $user = current_user();
 if (!$user) respond(['error' => 'Sign in to review quotations'], 401);
 $pdo = db();
+$pdo->exec("UPDATE sales_quotations SET status = 'Expired' WHERE admin_status = 'Approved' AND customer_status = 'Pending' AND valid_until IS NOT NULL AND valid_until < CURDATE() AND status <> 'Expired'");
 $customerId = (int)$user['customer_id'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = body();
     $quotationId = (int)($input['quotation_id'] ?? 0);
     $decision = $input['decision'] ?? '';
+    $action = strtolower((string)($input['action'] ?? ''));
+
+    if ($action === 'delete') {
+        try {
+            $stmt = $pdo->prepare("SELECT q.*, r.request_no, r.quotation_id request_quotation_id FROM sales_quotations q LEFT JOIN customer_order_requests r ON r.req_id=q.source_request_id AND r.customer_id=q.customer_id WHERE q.sq_id=? AND q.customer_id=? AND q.admin_status='Approved' FOR UPDATE");
+            $stmt->execute([$quotationId, $customerId]);
+            $q = $stmt->fetch();
+            if (!$q) throw new RuntimeException('Quotation not found or not yet released by Sales.');
+            if (empty($q['valid_until']) || $q['valid_until'] >= date('Y-m-d')) throw new RuntimeException('This quotation has not expired yet.');
+            if ($q['customer_status'] !== 'Pending') throw new RuntimeException('Only pending quotations can be deleted after expiration.');
+
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare("DELETE FROM sales_quotations WHERE sq_id=? AND customer_id=? AND admin_status='Approved' AND customer_status='Pending' AND valid_until < CURDATE()");
+            $stmt->execute([$quotationId, $customerId]);
+            if ($stmt->rowCount() !== 1) throw new RuntimeException('This quotation could not be deleted. Refresh and try again.');
+            if (!empty($q['source_request_id']) && (int)($q['request_quotation_id'] ?? 0) === $quotationId) {
+                $stmt = $pdo->prepare("UPDATE customer_order_requests SET status='Pending Quotation', quotation_id=NULL WHERE req_id=? AND customer_id=? AND quotation_id=? AND status<>'Converted'");
+                $stmt->execute([(int)$q['source_request_id'], $customerId, $quotationId]);
+            }
+            $pdo->commit();
+            respond(['ok' => true, 'message' => 'Expired quotation deleted.']);
+        } catch (RuntimeException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            respond(['error' => $e->getMessage()], 409);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            respond(['error' => 'Could not delete the quotation. Please try again later.'], 500);
+        }
+    }
+
     if ($quotationId <= 0 || !in_array($decision, ['Approved', 'Rejected'], true)) respond(['error' => 'Invalid quotation decision'], 422);
     try {
         $pdo->beginTransaction();
@@ -60,6 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         respond(['error'=>'Could not save your decision. Please try again later.'], 500);
     }
 }
-$stmt = $pdo->prepare("SELECT q.sq_id,q.quotation_no,q.product_code,q.quantity,q.total_amount,q.quotation_date,q.valid_until,q.inventory_status,q.customer_status,r.request_no FROM sales_quotations q LEFT JOIN customer_order_requests r ON r.req_id=q.source_request_id WHERE q.customer_id=? AND q.admin_status='Approved' ORDER BY q.sq_id DESC");
+$stmt = $pdo->prepare("SELECT q.sq_id,q.quotation_no,q.product_code,q.quantity,q.total_amount,q.quotation_date,q.valid_until,q.inventory_status,q.customer_status,q.status, CASE WHEN q.customer_status='Pending' AND q.valid_until IS NOT NULL AND q.valid_until < CURDATE() THEN 'Expired' ELSE q.status END AS effective_status, r.request_no FROM sales_quotations q LEFT JOIN customer_order_requests r ON r.req_id=q.source_request_id WHERE q.customer_id=? AND q.admin_status='Approved' ORDER BY q.sq_id DESC");
 $stmt->execute([$customerId]);
 respond(['quotations'=>$stmt->fetchAll()]);
