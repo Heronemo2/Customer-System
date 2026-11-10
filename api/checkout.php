@@ -28,6 +28,16 @@ try {
     // Give every product its own request number to prevent duplicate-key failures on multi-item carts.
     $requestNumbers = [];
     $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,quantity,notes,status) VALUES (?,?,CURDATE(),?,?,?,'Pending Quotation')");
+    $staffIds = $pdo->query("
+        SELECT user_id
+        FROM users
+        WHERE role = 'Sales Staff' AND status = 'Active'
+    ")->fetchAll(PDO::FETCH_COLUMN);
+    $notifyStaff = $pdo->prepare("
+        INSERT IGNORE INTO user_notifications (user_id, event_key, title, message, link)
+        VALUES (?, ?, 'New customer order', ?, 'quotations.php')
+    ");
+    $customerName = trim((string)($user['name'] ?? '')) ?: 'A customer';
     foreach ($valid as $line) {
         $next = (int)$pdo->query('SELECT COALESCE(MAX(req_id),0)+1 FROM customer_order_requests')->fetchColumn();
         do {
@@ -38,6 +48,20 @@ try {
             $next++;
         } while (true);
         $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['qty'], $note]);
+        $requestId = (int)$pdo->lastInsertId();
+        $message = $customerName . ' ordered ' . $line['qty'] . ' x ' . $line['name'] . ' (' . $requestNo . ').';
+        if (function_exists('mb_substr')) {
+            $message = mb_substr($message, 0, 255, 'UTF-8');
+        } else {
+            $message = substr($message, 0, 255);
+        }
+        foreach ($staffIds as $staffId) {
+            $notifyStaff->execute([
+                (int)$staffId,
+                'customer-order-request:' . $requestId,
+                $message,
+            ]);
+        }
         $requestNumbers[] = $requestNo;
     }
     $pdo->commit();

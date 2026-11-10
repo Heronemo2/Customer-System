@@ -29,9 +29,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             $returnNo = 'RET-' . ((int)$pdo->query('SELECT COALESCE(MAX(ret_id),0)+1 FROM sales_returns')->fetchColumn() + 1);
             $insert = $pdo->prepare("INSERT INTO sales_returns (return_no, order_id, return_date, reason, total_amount, status, admin_status) VALUES (?, ?, ?, ?, ?, 'Pending', 'Pending')");
             try {
+                $pdo->beginTransaction();
                 $insert->execute([$returnNo, $orderId, $date, $reason, $amount > 0 ? $amount : (float)$order['total_amount']]);
+                $returnId = (int)$pdo->lastInsertId();
+                $admins = $pdo->query("
+                    SELECT user_id
+                    FROM users
+                    WHERE role = 'Sales Admin' AND status = 'Active'
+                ")->fetchAll(PDO::FETCH_COLUMN);
+                $notifyAdmins = $pdo->prepare("
+                    INSERT IGNORE INTO user_notifications (user_id, event_key, title, message, link)
+                    VALUES (?, ?, 'Sales return awaiting approval', ?, 'sales_return_approval.php')
+                ");
+                $customerName = trim((string)($user['name'] ?? '')) ?: 'A customer';
+                $message = $customerName . ' submitted Sales Return ' . $returnNo
+                    . ' for order ' . $order['order_no'] . '.';
+                foreach ($admins as $adminId) {
+                    $notifyAdmins->execute([
+                        (int)$adminId,
+                        'sales-return-pending:' . $returnId,
+                        $message,
+                    ]);
+                }
+                $pdo->commit();
                 $notice = 'Return request submitted successfully and sent to the Sales Admin.';
             } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 $error = 'Could not submit return request: ' . $e->getMessage();
             }
         }

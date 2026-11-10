@@ -19,12 +19,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay_i
     if ($invoiceId <= 0 || $amount <= 0 || $date === '') {
         $error = 'Select an invoice, enter a valid amount, and choose a date.';
     } else {
-        $invoiceStmt = $pdo->prepare("SELECT i.inv_id, i.invoice_no, i.total_amount, i.amount_paid, o.customer_id FROM sales_invoices i JOIN sales_orders o ON o.so_id = i.order_id WHERE i.inv_id = ? AND o.customer_id = ? LIMIT 1");
+        $invoiceStmt = $pdo->prepare("
+            SELECT i.inv_id, i.invoice_no, i.total_amount, i.amount_paid, i.status, o.customer_id
+            FROM sales_invoices i
+            JOIN sales_orders o ON o.so_id = i.order_id
+            WHERE i.inv_id = ? AND o.customer_id = ?
+              AND i.status <> 'Paid'
+              AND COALESCE(i.amount_paid, 0) < i.total_amount
+            LIMIT 1
+        ");
         $invoiceStmt->execute([$invoiceId, $customerId]);
         $invoice = $invoiceStmt->fetch();
 
         if (!$invoice) {
-            $error = 'Selected invoice was not found for your account.';
+            $error = 'Select an unpaid invoice with a remaining balance.';
         } else {
             $remaining = max(0, (float)$invoice['total_amount'] - (float)$invoice['amount_paid']);
             if ($amount > $remaining) {
@@ -72,6 +80,18 @@ $stmt = $pdo->prepare(
 );
 $stmt->execute([$customerId]);
 $rows = $stmt->fetchAll();
+
+$payableStmt = $pdo->prepare("
+    SELECT i.inv_id, i.invoice_no, i.status, o.order_no
+    FROM sales_invoices i
+    JOIN sales_orders o ON o.so_id = i.order_id
+    WHERE o.customer_id = ?
+      AND i.status <> 'Paid'
+      AND COALESCE(i.amount_paid, 0) < i.total_amount
+    ORDER BY i.inv_id DESC
+");
+$payableStmt->execute([$customerId]);
+$payableInvoices = $payableStmt->fetchAll();
 ?>
           <div class="page-head">
             <div>
@@ -90,13 +110,16 @@ $rows = $stmt->fetchAll();
 
           <div class="panel" style="margin-bottom:18px; border:1px solid var(--line); border-radius:14px; background:var(--card); padding:18px;">
             <h2 style="margin:0 0 12px;">Record Payment</h2>
+            <?php if (!$payableInvoices): ?>
+              <div class="notice">There are no unpaid invoices with a remaining balance.</div>
+            <?php else: ?>
             <form method="POST" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
               <input type="hidden" name="action" value="pay_invoice">
               <label style="display:grid; gap:6px; font-weight:600;">
                 Invoice
                 <select name="invoice_id" required>
                   <option value="">Select invoice</option>
-                  <?php foreach ($rows as $row): ?>
+                  <?php foreach ($payableInvoices as $row): ?>
                     <option value="<?= (int)$row['inv_id'] ?>"><?= htmlspecialchars($row['invoice_no']) ?> · <?= htmlspecialchars($row['order_no']) ?></option>
                   <?php endforeach; ?>
                 </select>
@@ -119,6 +142,7 @@ $rows = $stmt->fetchAll();
               </label>
               <button type="submit" class="btn" style="height:42px;">Pay Now</button>
             </form>
+            <?php endif; ?>
           </div>
 
           <?php if (!$rows): ?>
