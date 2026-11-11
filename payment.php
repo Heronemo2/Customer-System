@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay_i
 
 $stmt = $pdo->prepare(
     "SELECT i.inv_id, i.invoice_no, i.invoice_date, i.total_amount, i.amount_paid, i.status, o.order_no,
-            (i.total_amount - i.amount_paid) AS balance
+            GREATEST(i.total_amount - i.amount_paid, 0) AS balance
      FROM sales_invoices i
      JOIN sales_orders o ON o.so_id = i.order_id
      WHERE o.customer_id = ?
@@ -86,7 +86,7 @@ $payableStmt = $pdo->prepare("
     FROM sales_invoices i
     JOIN sales_orders o ON o.so_id = i.order_id
     WHERE o.customer_id = ?
-      AND i.status <> 'Paid'
+      AND i.status NOT IN ('Paid','Returned')
       AND COALESCE(i.amount_paid, 0) < i.total_amount
     ORDER BY i.inv_id DESC
 ");
@@ -172,7 +172,7 @@ $payableInvoices = $payableStmt->fetchAll();
                       <td style="padding:12px 8px;">₱<?= number_format((float)$row['amount_paid'], 2) ?></td>
                       <td style="padding:12px 8px;">₱<?= number_format((float)$row['balance'], 2) ?></td>
                       <td style="padding:12px 8px;">
-                        <span class="badge" style="background: <?= strtolower($row['status']) === 'paid' ? '#1f8a4c' : (strtolower($row['status']) === 'partially paid' ? '#d48c00' : '#c62828') ?>;">
+                        <span class="badge" style="background: <?= strtolower($row['status']) === 'returned' ? '#6b5b95' : (strtolower($row['status']) === 'paid' ? '#1f8a4c' : (strtolower($row['status']) === 'partially paid' ? '#d48c00' : '#c62828')) ?>;">
                           <?= htmlspecialchars($row['status']) ?>
                         </span>
                       </td>

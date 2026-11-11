@@ -25,6 +25,110 @@ function db(): PDO {
 }
 function respond($data, int $code = 200): void { http_response_code($code); echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 function body(): array { $d = json_decode(file_get_contents('php://input'), true); return is_array($d) ? $d : []; }
+function customer_ors_request(string $url, string $apiKey, ?array $requestBody = null): array {
+    if (!function_exists('curl_init')) throw new RuntimeException('Road-distance service is unavailable on this server.');
+    $curl = curl_init($url);
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => ['Authorization: ' . $apiKey, 'Accept: application/json'],
+    ];
+    if ($requestBody !== null) {
+        $options[CURLOPT_POST] = true;
+        $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/json';
+        $options[CURLOPT_POSTFIELDS] = json_encode($requestBody, JSON_UNESCAPED_UNICODE);
+    }
+    curl_setopt_array($curl, $options);
+    $responseBody = curl_exec($curl);
+    $httpCode = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+    if ($responseBody === false || $httpCode < 200 || $httpCode >= 300) {
+        error_log('openrouteservice request failed (' . $httpCode . '): ' . $curlError);
+        throw new RuntimeException('Could not calculate a road route to your barangay. Check the address or try again later.');
+    }
+    $data = json_decode($responseBody, true);
+    if (!is_array($data)) throw new RuntimeException('The road-distance service returned an invalid response.');
+    return $data;
+}
+function customer_geocode_address(string $address, string $apiKey): array {
+    $url = 'https://api.heigit.org/pelias/v1/search?' . http_build_query([
+        'text' => $address,
+        'boundary.country' => 'PH',
+        'size' => 1,
+    ]);
+    $data = customer_ors_request($url, $apiKey);
+    $coordinates = $data['features'][0]['geometry']['coordinates'] ?? null;
+    if (!is_array($coordinates) || count($coordinates) < 2) {
+        throw new RuntimeException('Could not locate the saved delivery address. Check the address and try again.');
+    }
+    return [(float)$coordinates[0], (float)$coordinates[1]];
+}
+function customer_phone_e164(string $phone, string $countryCode): ?string {
+    $phone = trim($phone);
+    if ($phone === '') return null;
+    $digits = preg_replace('/\D+/', '', $phone);
+    if (str_starts_with($phone, '+')) {
+        $international = $digits;
+    } else {
+        $code = preg_replace('/\D+/', '', $countryCode);
+        if ($code === '' || strlen($code) > 4) throw new InvalidArgumentException('Choose a valid country calling code.');
+        if (str_starts_with($digits, $code) && strlen($digits) >= strlen($code) + 7) {
+            $digits = substr($digits, strlen($code));
+        }
+        // Philippine mobile numbers are commonly entered with a local leading zero.
+        if ($code === '63' && str_starts_with($digits, '0')) $digits = substr($digits, 1);
+        $international = $code . $digits;
+    }
+    if (strlen($international) < 8 || strlen($international) > 15) {
+        throw new InvalidArgumentException('Enter a valid phone number with its country code.');
+    }
+    return '+' . $international;
+}
+function customer_shipping_quote(PDO $pdo, array $user): array {
+    $rateQuery = $pdo->prepare('SELECT setting_value FROM sales_settings WHERE setting_key=? LIMIT 1');
+    $rateQuery->execute(['shipping_rate_per_km']);
+    $rate = $rateQuery->fetchColumn();
+    if ($rate === false || (float)$rate < 0) throw new RuntimeException('The shipping rate per kilometer has not been configured by Sales.');
+
+    $barangay = trim((string)($user['address'] ?? ''));
+    $city = trim((string)($user['city'] ?? ''));
+    $province = trim((string)($user['province'] ?? ''));
+    if ($barangay === '' || $city === '' || $province === '') {
+        throw new RuntimeException('Complete your barangay, city/municipality, and province in account settings to calculate shipping.');
+    }
+    $destination = $barangay . ', ' . $city . ', ' . $province . ', Philippines';
+    $cacheKey = hash('sha256', strtolower('San Pablo City, Laguna, Philippines|' . $destination));
+    $cacheQuery = $pdo->prepare('SELECT distance_meters FROM sales_shipping_distance_cache WHERE cache_key=? LIMIT 1');
+    $cacheQuery->execute([$cacheKey]);
+    $distanceMeters = $cacheQuery->fetchColumn();
+
+    if ($distanceMeters === false) {
+        $apiKey = trim((string)getenv('OPENROUTESERVICE_API_KEY'));
+        if ($apiKey === '') {
+            throw new RuntimeException('Road-distance shipping is not configured. Set OPENROUTESERVICE_API_KEY for the Customer System.');
+        }
+        $originCoordinates = customer_geocode_address('San Pablo City, Laguna, Philippines', $apiKey);
+        $destinationCoordinates = customer_geocode_address($destination, $apiKey);
+        $routeData = customer_ors_request(
+            'https://api.heigit.org/openrouteservice/v2/directions/driving-car',
+            $apiKey,
+            ['coordinates' => [$originCoordinates, $destinationCoordinates], 'units' => 'm']
+        );
+        $distanceMeters = (int)round((float)($routeData['routes'][0]['summary']['distance'] ?? 0));
+        if ($distanceMeters < 1) throw new RuntimeException('No drivable route was found for the saved delivery location.');
+        $saveCache = $pdo->prepare('INSERT INTO sales_shipping_distance_cache (cache_key,distance_meters) VALUES (?,?) ON DUPLICATE KEY UPDATE distance_meters=VALUES(distance_meters)');
+        $saveCache->execute([$cacheKey, $distanceMeters]);
+    }
+
+    $distanceKm = (int)$distanceMeters / 1000;
+    return [
+        'distance_km' => round($distanceKm, 2),
+        'rate_per_km' => (float)$rate,
+        'shipping_fee' => round($distanceKm * (float)$rate, 2),
+    ];
+}
 function current_user(): ?array {
     if (empty($_SESSION['customer_portal_user']) || ($_SESSION['customer_portal_user']['role'] ?? '') !== 'Customer') return null;
     $u = $_SESSION['customer_portal_user'];

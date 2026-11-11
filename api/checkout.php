@@ -9,16 +9,19 @@ $note = substr(trim((string)($input['note'] ?? '')), 0, 500);
 if (!is_array($items) || !$items) respond(['error' => 'Your request cart is empty'], 422);
 $pdo = db();
 try {
+    $shippingFee = (float)customer_shipping_quote($pdo, $user)['shipping_fee'];
     $pdo->beginTransaction();
     $valid = [];
     foreach ($items as $item) {
         $productId = (int)($item['product_id'] ?? $item['variant_id'] ?? 0);
         $quantity = (int)($item['quantity'] ?? $item['qty'] ?? 0);
         if ($productId < 1 || $quantity < 1) continue;
-        $stmt = $pdo->prepare("SELECT fg_id,item_code,item_name,quantity FROM inventory_system.finished_goods WHERE fg_id=? AND status='Active' LIMIT 1");
+        $stmt = $pdo->prepare("SELECT fg.fg_id,fg.item_code,fg.item_name,si.stock_quantity AS quantity,si.unit_price FROM inventory_system.finished_goods fg JOIN inventory si ON BINARY si.product_code=BINARY fg.item_code WHERE fg.fg_id=? AND fg.status='Active' AND si.status='Active' LIMIT 1");
         $stmt->execute([$productId]);
         $product = $stmt->fetch();
         if (!$product) throw new RuntimeException('A product in your cart is no longer available.');
+        if ((float)$product['quantity'] <= 0) throw new RuntimeException('A selected size is no longer in stock. Please remove it and choose an available size.');
+        if ((float)$product['unit_price'] <= 0) throw new RuntimeException('A fixed price is not set for a selected item. Please remove it from your cart.');
         // Requests do not deduct Inventory stock.
         $valid[] = ['code' => $product['item_code'], 'qty' => $quantity, 'name' => $product['item_name']];
     }
@@ -27,7 +30,7 @@ try {
     // customer_order_requests.request_no is UNIQUE and each row represents one product line.
     // Give every product its own request number to prevent duplicate-key failures on multi-item carts.
     $requestNumbers = [];
-    $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,quantity,notes,status) VALUES (?,?,CURDATE(),?,?,?,'Pending Quotation')");
+    $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,quantity,shipping_fee,notes,status) VALUES (?,?,CURDATE(),?,?,?,?,'Pending Quotation')");
     $staffIds = $pdo->query("
         SELECT user_id
         FROM users
@@ -38,7 +41,7 @@ try {
         VALUES (?, ?, 'New customer order', ?, 'quotations.php')
     ");
     $customerName = trim((string)($user['name'] ?? '')) ?: 'A customer';
-    foreach ($valid as $line) {
+    foreach ($valid as $lineIndex => $line) {
         $next = (int)$pdo->query('SELECT COALESCE(MAX(req_id),0)+1 FROM customer_order_requests')->fetchColumn();
         do {
             $requestNo = 'REQ-' . (3000 + $next);
@@ -47,7 +50,7 @@ try {
             if (!$check->fetchColumn()) break;
             $next++;
         } while (true);
-        $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['qty'], $note]);
+        $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['qty'], $lineIndex === 0 ? $shippingFee : 0, $note]);
         $requestId = (int)$pdo->lastInsertId();
         $message = $customerName . ' ordered ' . $line['qty'] . ' x ' . $line['name'] . ' (' . $requestNo . ').';
         if (function_exists('mb_substr')) {

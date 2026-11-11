@@ -73,7 +73,7 @@ require __DIR__ . '/includes/layout-start.php';
                   SELECT i.inv_id, i.invoice_no, i.invoice_date, i.total_amount, i.amount_paid, i.status, o.order_no
                   FROM sales_invoices i
                   JOIN sales_orders o ON o.so_id = i.order_id
-                  WHERE o.customer_id = ?
+                  WHERE o.customer_id = ? AND i.total_amount > 0
                   ORDER BY i.invoice_date DESC, i.inv_id DESC
               ");
               $stmt->execute([$customerId]);

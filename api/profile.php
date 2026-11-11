@@ -12,7 +12,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $isMultipart = str_starts_with($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data');
 $input = $isMultipart ? $_POST : body();
 $name = trim((string)($input['name'] ?? $user['name']));
-$phone = trim((string)($input['phone'] ?? ''));
+$phone = '';
+try {
+    $phone = customer_phone_e164((string)($input['phone'] ?? ''), (string)($input['phone_country_code'] ?? '+63')) ?? '';
+} catch (InvalidArgumentException $e) {
+    respond(['error' => $e->getMessage()], 422);
+}
 $email = strtolower(trim((string)($input['email'] ?? '')));
 $address = trim((string)($input['address'] ?? ''));
 $city = trim((string)($input['city'] ?? ''));

@@ -10,7 +10,11 @@ if ($act === 'register') {
     $username = is_string($in['username'] ?? null) ? trim($in['username']) : '';
     $email = strtolower(trim($in['email'] ?? ''));
     $pw = (string)($in['password'] ?? '');
-    $phone = trim($in['phone'] ?? '');
+    try {
+        $phone = customer_phone_e164((string)($in['phone'] ?? ''), (string)($in['phone_country_code'] ?? '+63'));
+    } catch (InvalidArgumentException $e) {
+        respond(['error' => $e->getMessage()], 422);
+    }
     $address = trim($in['address'] ?? '');
     $city = trim($in['city'] ?? '');
     $province = trim($in['province'] ?? '');
@@ -27,14 +31,22 @@ if ($act === 'register') {
     if ($c->fetch()) respond(['error' => 'That email already has a customer record'], 409);
     try {
         $pdo->beginTransaction();
-        do {
-            $code = 'CUS-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
-            $s = $pdo->prepare('SELECT 1 FROM customers WHERE customer_code=?');
-            $s->execute([$code]);
-        } while ($s->fetchColumn());
+        // Use a temporary unique value, then assign the readable customer
+        // number from the generated ID (for example, CUS-007).
+        $code = 'TMP-' . strtoupper(bin2hex(random_bytes(8)));
         $s = $pdo->prepare('INSERT INTO customers (customer_code,customer_name,phone,email,address,city,province,status) VALUES (?,?,?,?,?,?,?,"Inactive")');
         $s->execute([$code, $full, $phone, $email, $address, $city, $province]);
         $cid = (int)$pdo->lastInsertId();
+        $number = $cid;
+        do {
+            $code = 'CUS-' . str_pad((string)$number, 3, '0', STR_PAD_LEFT);
+            $s = $pdo->prepare('SELECT 1 FROM customers WHERE customer_code=? AND cus_id<>?');
+            $s->execute([$code, $cid]);
+            if ($s->fetchColumn()) $number++;
+            else break;
+        } while (true);
+        $s = $pdo->prepare('UPDATE customers SET customer_code=? WHERE cus_id=?');
+        $s->execute([$code, $cid]);
         $s = $pdo->prepare('INSERT INTO users (full_name,username,password,role,customer_id,status,account_status) VALUES (?,?,?,"Customer",?,"Active","Pending")');
         $s->execute([$full, $username, password_hash($pw, PASSWORD_DEFAULT), $cid]);
         $pdo->commit();

@@ -367,6 +367,44 @@ textarea:focus {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.phone-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.phone-input-row:focus-within {
+  border-color: var(--ink);
+}
+.phone-input-row select,
+.phone-input-row input {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.phone-input-row select {
+  flex: 0 0 76px;
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  padding-right: 8px;
+}
+.phone-input-row input {
+  flex: 1 1 auto;
+}
+.phone-input-row select:focus,
+.phone-input-row input:focus {
+  outline: 0;
+  border-color: var(--line);
+}
+.phone-input-row[hidden] {
+  display: none;
+}
 
 /* ---------- dashboard: product catalogue ---------- */
 .toolbar {
@@ -1009,6 +1047,13 @@ a.card:hover .shot img {
 @media (max-width: 640px) {
   .two {
     grid-template-columns: 1fr;
+  }
+  .phone-input-row {
+    /* Keep the calling code and number together on narrow screens. */
+  }
+  .phone-input-row select {
+    flex-basis: 70px;
+    padding-left: 8px;
   }
   .line {
     grid-template-columns: 80px 1fr;

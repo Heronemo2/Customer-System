@@ -54,27 +54,50 @@
             maxlength="60"
             hidden
           />
-          <input
-            name="phone"
-            placeholder="Phone number"
-            autocomplete="tel"
-            class="su su-required"
-            hidden
-          />
-          <input
-            name="address"
-            placeholder="Street address"
-            autocomplete="street-address"
-            class="su su-required"
-            hidden
-          />
-          <div class="two su">
-            <input name="city" placeholder="City" class="su-required" /><input
-              name="province"
-              placeholder="Province"
-              class="su-required"
-            />
+          <div class="su phone-input-row" hidden>
+            <input name="phone" type="tel" placeholder="+63 917 123 4567" autocomplete="tel" class="su-required" required />
+            <select name="phone_country_code" class="su-required phone-country-code" aria-label="Choose country calling code" required>
+              <option value="+63" title="Philippines (+63)" selected>🇵🇭</option>
+              <option value="+1" title="United States/Canada (+1)">🇺🇸</option>
+              <option value="+44" title="United Kingdom (+44)">🇬🇧</option>
+              <option value="+61" title="Australia (+61)">🇦🇺</option>
+              <option value="+64" title="New Zealand (+64)">🇳🇿</option>
+              <option value="+60" title="Malaysia (+60)">🇲🇾</option>
+              <option value="+65" title="Singapore (+65)">🇸🇬</option>
+              <option value="+62" title="Indonesia (+62)">🇮🇩</option>
+              <option value="+66" title="Thailand (+66)">🇹🇭</option>
+              <option value="+84" title="Vietnam (+84)">🇻🇳</option>
+              <option value="+81" title="Japan (+81)">🇯🇵</option>
+              <option value="+82" title="South Korea (+82)">🇰🇷</option>
+              <option value="+86" title="China (+86)">🇨🇳</option>
+              <option value="+852" title="Hong Kong (+852)">🇭🇰</option>
+              <option value="+886" title="Taiwan (+886)">🇹🇼</option>
+              <option value="+91" title="India (+91)">🇮🇳</option>
+              <option value="+971" title="United Arab Emirates (+971)">🇦🇪</option>
+              <option value="+966" title="Saudi Arabia (+966)">🇸🇦</option>
+              <option value="+974" title="Qatar (+974)">🇶🇦</option>
+              <option value="+965" title="Kuwait (+965)">🇰🇼</option>
+              <option value="+49" title="Germany (+49)">🇩🇪</option>
+              <option value="+33" title="France (+33)">🇫🇷</option>
+              <option value="+39" title="Italy (+39)">🇮🇹</option>
+              <option value="+34" title="Spain (+34)">🇪🇸</option>
+              <option value="+31" title="Netherlands (+31)">🇳🇱</option>
+              <option value="+353" title="Ireland (+353)">🇮🇪</option>
+              <option value="+55" title="Brazil (+55)">🇧🇷</option>
+              <option value="+27" title="South Africa (+27)">🇿🇦</option>
+            </select>
           </div>
+          <div class="two su">
+            <select name="province" class="su-required location-province" aria-label="Province" required>
+              <option value="">Loading provinces...</option>
+            </select>
+            <select name="city" class="su-required location-city" aria-label="City or municipality" required disabled>
+              <option value="">Select province first</option>
+            </select>
+          </div>
+          <select name="address" class="su su-required location-barangay" aria-label="Barangay" required disabled>
+            <option value="">Select city/municipality first to load barangays</option>
+          </select>
           <input
             name="email"
             id="emailOrUsername"

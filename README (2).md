@@ -17,4 +17,4 @@ The original STRIDE HTML/CSS/JavaScript storefront structure and visual styling 
 - Request/order tracking is displayed under the account page.
 
 ## Important
-This customer storefront intentionally does not use the original `stride_store` database, product prices, payments, or sales-order checkout. Pricing is set by Sales in the quotation. `inventory_system.finished_goods` is read-only from this storefront. Keep database credentials appropriate for your local setup and use HTTPS for production.
+This customer storefront intentionally does not use the original `stride_store` database, payments, or direct sales-order checkout. Fixed product prices are managed in Team Sales inventory, displayed in the customer catalog, and used when Sales creates a quotation. `inventory_system.finished_goods` is read-only from this storefront. Keep database credentials appropriate for your local setup and use HTTPS for production.

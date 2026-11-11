@@ -10,15 +10,16 @@
     });
   const summaryTotals = (lines) => {
     const subtotal = lines.reduce((sum, line) => {
-      const unitPrice = Number(line?.p?.price ?? line?.p?.sale_price ?? 0);
+      const unitPrice = Number(line?.v?.price ?? line?.p?.price ?? line?.p?.sale_price ?? 0);
       const qty = Number(line?.qty ?? 0);
       return sum + unitPrice * qty;
     }, 0);
-    const shipping = 0;
+    const rawShipping = lines.length ? lines[0]?.p?.shipping_fee : 0;
+    const shipping = rawShipping == null ? null : Number(rawShipping);
     return {
       subtotal,
       shipping,
-      total: subtotal + shipping,
+      total: shipping == null ? null : subtotal + shipping,
     };
   };
   const esc = (s) =>
@@ -34,6 +35,148 @@
         })[c],
     );
   const param = (k) => new URLSearchParams(location.search).get(k) || "";
+  const PHONE_COUNTRIES = [
+    ["Philippines", "+63", "🇵🇭"], ["United States/Canada", "+1", "🇺🇸"], ["United Kingdom", "+44", "🇬🇧"],
+    ["Australia", "+61", "🇦🇺"], ["New Zealand", "+64", "🇳🇿"], ["Malaysia", "+60", "🇲🇾"],
+    ["Singapore", "+65", "🇸🇬"], ["Indonesia", "+62", "🇮🇩"], ["Thailand", "+66", "🇹🇭"],
+    ["Vietnam", "+84", "🇻🇳"], ["Japan", "+81", "🇯🇵"], ["South Korea", "+82", "🇰🇷"], ["China", "+86", "🇨🇳"],
+    ["Hong Kong", "+852", "🇭🇰"], ["Taiwan", "+886", "🇹🇼"], ["India", "+91", "🇮🇳"],
+    ["United Arab Emirates", "+971", "🇦🇪"], ["Saudi Arabia", "+966", "🇸🇦"], ["Qatar", "+974", "🇶🇦"],
+    ["Kuwait", "+965", "🇰🇼"], ["Germany", "+49", "🇩🇪"], ["France", "+33", "🇫🇷"], ["Italy", "+39", "🇮🇹"],
+    ["Spain", "+34", "🇪🇸"], ["Netherlands", "+31", "🇳🇱"], ["Ireland", "+353", "🇮🇪"],
+    ["Brazil", "+55", "🇧🇷"], ["South Africa", "+27", "🇿🇦"],
+  ];
+  const phoneCountryOptions = (selected = "+63") => PHONE_COUNTRIES.map(([name, code]) =>
+    `<option value="${code}" title="${name} (${code})"${code === selected ? " selected" : ""}>${PHONE_COUNTRIES.find((item) => item[1] === code)?.[2] || "🌐"}</option>`,
+  ).join("");
+  function splitSavedPhone(value) {
+    const phone = String(value || "").trim();
+    if (phone.startsWith("+")) {
+      const digits = phone.replace(/\D/g, "");
+      const match = PHONE_COUNTRIES.map(([, code]) => code).sort((a, b) => b.length - a.length).find((code) => digits.startsWith(code.slice(1)));
+      if (match) {
+        let number = digits.slice(match.length - 1);
+        if (match === "+63" && number.startsWith("0")) number = number.slice(1);
+        return { code: match, number };
+      }
+    }
+    return { code: "+63", number: phone };
+  }
+  function bindPhoneInput(root) {
+    const country = $(".phone-country-code", root);
+    const input = $("[name=phone]", root);
+    if (!country || !input) return;
+    let previousCode = country.value;
+    input.addEventListener("focus", () => {
+      if (!input.value.trim()) input.value = `${country.value} `;
+    });
+    country.addEventListener("change", () => {
+      const digits = input.value.replace(/\D/g, "");
+      const oldDigits = previousCode.replace(/\D/g, "");
+      const national = input.value.trim().startsWith("+") && digits.startsWith(oldDigits)
+        ? digits.slice(oldDigits.length)
+        : digits;
+      input.value = `${country.value} ${national}`.trimEnd() + (national ? "" : " ");
+      previousCode = country.value;
+    });
+  }
+
+  const PSGC_API = "https://psgc.gitlab.io/api";
+  const locationCache = new Map();
+  async function psgcList(path) {
+    if (!locationCache.has(path)) {
+      locationCache.set(path, fetch(`${PSGC_API}/${path}`).then(async (response) => {
+        if (!response.ok) throw new Error("Could not load Philippine location data.");
+        const payload = await response.json();
+        // Accept both static PSGC arrays and wrapped API collections.
+        const items = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : Array.isArray(payload?.data?.data)
+              ? payload.data.data
+              : null;
+        if (!items) throw new Error("Philippine location data is unavailable.");
+        return items;
+      }).catch((error) => {
+        locationCache.delete(path);
+        throw error;
+      }));
+    }
+    return locationCache.get(path);
+  }
+
+  function locationKey(value) {
+    return String(value || "").toLowerCase().replace(/^(city of )/, "").replace(/ city$/, "").replace(/[^a-z0-9]/g, "");
+  }
+
+  async function setupLocationFields(root, saved = {}) {
+    const province = $(".location-province", root);
+    const city = $(".location-city", root);
+    const barangay = $(".location-barangay", root);
+    if (!province || !city || !barangay) return;
+    const setOptions = (select, items, placeholder, selected = "") => {
+      select.replaceChildren(new Option(placeholder, ""));
+      items.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((item) => {
+        const option = new Option(item.name, item.name);
+        select.add(option);
+      });
+      const match = [...select.options].find((option) => option.value && (option.value === selected || locationKey(option.value) === locationKey(selected)));
+      select.value = match ? match.value : "";
+    };
+    province.disabled = true;
+    try {
+      const provinces = await psgcList("provinces");
+      setOptions(province, provinces, "Select province", saved.province || "");
+      [...province.options].forEach((option) => {
+        const item = provinces.find((entry) => entry.name === option.value);
+        if (item) option.dataset.code = item.code;
+      });
+      province.disabled = false;
+      const loadCities = async (selectedCity = "") => {
+        city.disabled = true;
+        barangay.disabled = true;
+        setOptions(city, [], province.value ? "Loading cities/municipalities..." : "Select province first");
+        setOptions(barangay, [], "Select city/municipality first to load barangays");
+        if (!province.value) return;
+        const p = encodeURIComponent(province.selectedOptions[0]?.dataset.code || "");
+        const cities = await psgcList(`provinces/${p}/cities-municipalities/`);
+        setOptions(city, cities, "Select city or municipality", selectedCity);
+        [...city.options].forEach((option) => {
+          const item = cities.find((entry) => entry.name === option.value);
+          if (item) option.dataset.code = item.code;
+        });
+        city.disabled = false;
+        if (city.value) await loadBarangays(saved.address || "");
+      };
+      const loadBarangays = async (selectedBarangay = "") => {
+        barangay.disabled = true;
+        setOptions(barangay, [], "Loading barangays...");
+        const c = encodeURIComponent(city.selectedOptions[0]?.dataset.code || "");
+        const items = await psgcList(`cities-municipalities/${c}/barangays/`);
+        setOptions(barangay, items, "Select barangay", selectedBarangay);
+        barangay.disabled = false;
+      };
+      province.addEventListener("change", () => loadCities().catch(showLocationError));
+      city.addEventListener("change", () => {
+        if (!city.value) {
+          barangay.disabled = true;
+          return;
+        }
+        loadBarangays().catch(showLocationError);
+      });
+      if (province.value) await loadCities(saved.city || "");
+    } catch (error) {
+      showLocationError(error);
+    }
+    function showLocationError(error) {
+      const message = $("#profileMsg", root) || $("#err", root) || $("#msg", root);
+      if (message) message.textContent = error.message;
+      province.disabled = true;
+      city.disabled = true;
+      barangay.disabled = true;
+    }
+  }
 
   function toast(message) {
     let t = $("#toast");
@@ -92,7 +235,7 @@
       localStorage.setItem("stride_cart", JSON.stringify(cart));
       Cart.badge();
     },
-    count: () => Cart.get().reduce((sum, item) => sum + item.qty, 0),
+    count: () => Cart.get().length,
     add(productId, variantId, quantity = 1) {
       const cart = Cart.get();
       const item = cart.find((entry) => entry.variant_id === variantId);
@@ -130,10 +273,11 @@
     async lines() {
       const cart = Cart.get();
       if (!cart.length) return [];
-      const { products } = await api(
+      const { products, shipping_quote: shippingQuote = null, shipping_error: shippingError = null } = await api(
         "api/products.php?ids=" +
         [...new Set(cart.map((item) => item.product_id))].join(","),
       );
+      const address = await mePromise;
       return cart
         .map((item) => {
           const product = products.find((entry) => entry.id == item.product_id);
@@ -142,7 +286,7 @@
             product.variants.find((entry) => entry.id == item.variant_id);
           return product && variant
             ? {
-              p: product,
+              p: { ...product, shipping_fee: address && shippingQuote ? Number(shippingQuote.shipping_fee) : null, shipping_quote: shippingQuote, shipping_error: shippingError },
               v: variant,
               qty: Math.max(1, parseInt(item.qty) || 1),
               wanted: item.qty,
@@ -183,7 +327,7 @@
 
   function productCard(product) {
     const outOfStock = product.variants.every((variant) => variant.stock < 1);
-    return `<a class="card" href="product.php?id=${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="${esc(product.name)}" loading="lazy"></div><div class="info"><span class="cat">${esc(product.brand || product.category || "Product")} · ${esc(product.sku)}</span><h3>${esc(product.name)}</h3><span class="price">${outOfStock ? "Currently unavailable" : "View product"}</span></div></a>`;
+    return `<a class="card" href="product.php?id=${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="${esc(product.name)}" loading="lazy"></div><div class="info"><span class="cat">${esc(product.brand || product.category || "Product")} · ${esc(product.sku)}</span><h3>${esc(product.name)}</h3>${outOfStock ? '<span class="muted">Currently unavailable</span>' : ""}</div></a>`;
   }
 
   function orderHtml(order) {
@@ -381,7 +525,10 @@
             const avatarPreview = user.avatar_path
               ? `<img id="profileAvatar" src="${esc(user.avatar_path)}" alt="Profile photo">`
               : `<span id="profileAvatar">${esc(initials)}</span>`;
-            profileHost.innerHTML = `<form id="profileForm" class="box profile-form" enctype="multipart/form-data"><h2>Personal details</h2><div class="profile-photo-field"><div class="profile-photo-preview" id="profilePhotoPreview">${avatarPreview}</div><label>Profile photo<input name="avatar" id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG, or WebP · maximum 2 MB</small></label></div><label>Full name<input name="name" value="${esc(user.name)}" autocomplete="name" required></label><label>Email address<input name="email" type="email" value="${esc(user.email)}" autocomplete="email"></label><label>Phone number<input name="phone" value="${esc(user.phone)}" autocomplete="tel"></label><label>Street address<input name="address" value="${esc(user.address)}" autocomplete="street-address"></label><div class="two"><label>City<input name="city" value="${esc(user.city)}" autocomplete="address-level2"></label><label>Province<input name="province" value="${esc(user.province)}" autocomplete="address-level1"></label></div><p id="profileMsg" class="muted" role="status"></p><button class="btn">Save changes</button></form>`;
+            const savedPhone = splitSavedPhone(user.phone);
+            profileHost.innerHTML = `<form id="profileForm" class="box profile-form" enctype="multipart/form-data"><h2>Personal details</h2><div class="profile-photo-field"><div class="profile-photo-preview" id="profilePhotoPreview">${avatarPreview}</div><label>Profile photo<input name="avatar" id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG, or WebP · maximum 2 MB</small></label></div><label>Full name<input name="name" value="${esc(user.name)}" autocomplete="name" required></label><label>Email address<input name="email" type="email" value="${esc(user.email)}" autocomplete="email"></label><label for="profilePhoneNumber">Phone number</label><div class="phone-input-row"><input id="profilePhoneNumber" name="phone" type="tel" value="${esc(savedPhone.code)} ${esc(savedPhone.number)}" autocomplete="tel" required><select name="phone_country_code" class="phone-country-code" aria-label="Choose country calling code" required>${phoneCountryOptions(savedPhone.code)}</select></div><div class="two"><label>Province<select name="province" class="location-province" required><option value="">Loading provinces...</option></select></label><label>City/Municipality<select name="city" class="location-city" required disabled><option value="">Select province first</option></select></label></div><label>Barangay<select name="address" class="location-barangay" required disabled><option value="">Select city/municipality first to load barangays</option></select></label><p id="profileMsg" class="muted" role="status"></p><button class="btn">Save changes</button></form>`;
+            bindPhoneInput(profileHost);
+            setupLocationFields(profileHost, { province: user.province, city: user.city, address: user.address });
             $("#profilePhotoInput").onchange = (event) => {
               const file = event.target.files[0];
               if (!file) return;
@@ -443,16 +590,16 @@
         $("#lines").innerHTML = L.length
           ? L.map(
             (l) =>
-              `<div class="line"><a href="product.php?id=${l.p.id}"><img src="${esc(l.p.image_url)}" alt=""></a><div><strong>${esc(l.p.name)}</strong><br><span class="muted">Code ${esc(l.p.sku)}</span><div class="qty"><button data-d="-1" data-v="${l.v.id}" aria-label="Decrease">−</button>${l.qty}<button data-d="1" data-v="${l.v.id}" aria-label="Increase">+</button></div><button class="rm" data-rm="${l.v.id}">Remove</button></div><strong>Price to be confirmed</strong></div>`,
+              `<div class="line"><a href="product.php?id=${l.p.id}"><img src="${esc(l.p.image_url)}" alt=""></a><div><strong>${esc(l.p.name)}</strong><br><span class="muted">${esc(l.v.size)} / Code ${esc(l.p.sku)}</span><div class="qty"><button data-d="-1" data-v="${l.v.id}" aria-label="Decrease">−</button>${l.qty}<button data-d="1" data-v="${l.v.id}" aria-label="Increase">+</button></div><button class="rm" data-rm="${l.v.id}">Remove</button></div><strong>${peso(l.v.price)} each</strong></div>`,
           ).join("")
           : '<div class="box"><p>Your cart is empty.</p><a class="btn" href="dashboard.php">Browse products</a></div>';
         const totals = summaryTotals(L);
         $("#sSub").textContent = peso(totals.subtotal);
-        $("#sShip").textContent = peso(totals.shipping);
-        $("#sTot").textContent = peso(totals.total);
+        $("#sShip").textContent = totals.shipping == null ? "Sign in to calculate" : peso(totals.shipping);
+        $("#sTot").textContent = totals.total == null ? "—" : peso(totals.total);
         $("#go").style.display = L.length ? "" : "none";
         $("#note").textContent = L.length
-          ? "We’ll confirm the final price and availability before you accept the order."
+          ? (totals.shipping == null ? (L[0]?.p?.shipping_error || "Sign in and complete your delivery address to calculate road shipping.") : `Road distance: ${Number(L[0]?.p?.shipping_quote?.distance_km || 0).toFixed(2)} km at ${peso(L[0]?.p?.shipping_quote?.rate_per_km || 0)}/km. The fixed inventory price will be used in your quotation.`)
           : "";
       }
       window.STRIDE_CART_REDRAW = draw;
@@ -478,13 +625,18 @@
         $("#lines").innerHTML = lines
           .map(
             (line) =>
-              `<div class="oi"><img src="${esc(line.p.image_url)}" alt=""><div class="oi-info"><strong>${esc(line.p.name)}</strong><br><span class="muted">${esc(line.p.sku)} · Qty ${line.qty}</span></div><span>Price pending</span></div>`,
+              `<div class="oi"><img src="${esc(line.p.image_url)}" alt=""><div class="oi-info"><strong>${esc(line.p.name)}</strong><br><span class="muted">${esc(line.v.size)} / ${esc(line.p.sku)} · Qty ${line.qty}</span></div><span>${peso(line.v.price * line.qty)}</span></div>`,
           )
           .join("");
         const totals = summaryTotals(lines);
         $("#sSub").textContent = peso(totals.subtotal);
-        $("#sShip").textContent = peso(totals.shipping);
-        $("#sTot").textContent = peso(totals.total);
+        $("#sShip").textContent = totals.shipping == null ? "Rate unavailable" : peso(totals.shipping);
+        $("#sTot").textContent = totals.total == null ? "—" : peso(totals.total);
+        const shippingUnavailable = totals.shipping == null;
+        $("#err").textContent = shippingUnavailable
+          ? (lines[0]?.p?.shipping_error || "Road shipping could not be calculated. Check your barangay, city, and province, or contact Sales.")
+          : "";
+        $("#place").disabled = shippingUnavailable;
         form.onsubmit = async (event) => {
           event.preventDefault();
           const button = $("#place");
@@ -630,8 +782,10 @@
           m === "signup" ? "email" : "username";
         $("#err").textContent = "";
       }
+      setupLocationFields(document, {});
       $("#msg").textContent = param("msg");
       setMode(mode);
+      bindPhoneInput(document);
       $$(".tabs button").forEach(
         (b) => (b.onclick = () => setMode(b.dataset.mode)),
       );
@@ -690,14 +844,27 @@
             await api("api/products.php?id=" + encodeURIComponent(param("id")))
           ).products[0];
           if (!P) throw 0;
-          V = P.variants[0];
+          V = P.variants[0] || { stock: 0, id: null };
           document.title = P.name + " — Quick Step";
           $("#pdp").innerHTML =
-            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price">Request a quotation</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">Sales will review inventory availability after your request.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn" ${V.stock < 1 ? "disabled" : ""}>Add to request</button><p class="muted">Price and final availability will be confirmed by Sales in your quotation.</p></div></div>`;
+            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price" id="selectedPrice">Select a size to see the price</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">Inventory stock is checked again when you submit your request.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn" ${V.stock < 1 ? "disabled" : ""}>Add to request</button><p class="muted">The fixed price for the selected size will be used in your quotation.</p></div></div>`;
+          $("#qty").closest(".qtyrow").insertAdjacentHTML(
+            "beforebegin",
+            `<div class="qtyrow"><label>Size <select id="sizeSelect" required><option value="">Select a size</option>${P.variants.map((variant) => `<option value="${variant.id}">${esc(variant.size)}</option>`).join("")}</select></label></div>`,
+          );
+          $("#addBtn").disabled = true;
+          $("#sizeSelect").onchange = () => {
+            V = P.variants.find((variant) => variant.id == $("#sizeSelect").value) || null;
+            $("#addBtn").disabled = !V || Number(V.price) <= 0;
+            $("#selectedPrice").textContent = V && Number(V.price) > 0
+              ? `${peso(V.price)} per ${P.unit || "unit"}`
+              : V ? "Fixed price not set yet" : "Select a size to see fixed price";
+          };
           $("#addBtn").onclick = async () => {
+            if (!V) return;
             const q = Math.max(1, parseInt($("#qty").value) || 1);
-            Cart.add(P.id, V.id, q);
-            toast(P.name + " added to request cart");
+            Cart.add(V.id, V.id, q);
+            toast(P.name + " (" + V.size + ") added to request cart");
           };
           const rel = (await api("api/products.php?limit=5")).products
             .filter((x) => x.id !== P.id)
