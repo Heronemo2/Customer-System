@@ -14,7 +14,7 @@ if ($id < 1) {
 }
 try {
     $pdo = db();
-    $st = $pdo->prepare("SELECT q.quotation_no,q.quotation_date,q.valid_until,q.product_code,q.fg_id,q.quantity,q.total_amount,c.customer_name,c.email,c.phone,c.address,c.city,c.province,COALESCE(fg.item_name,q.product_code,'Product') product_name FROM sales_quotations q JOIN customers c ON c.cus_id=q.customer_id LEFT JOIN inventory_system.finished_goods fg ON fg.fg_id=q.fg_id WHERE q.sq_id=? AND q.customer_id=? AND q.admin_status='Approved' LIMIT 1");
+    $st = $pdo->prepare("SELECT q.quotation_no,q.quotation_date,q.valid_until,q.product_code,q.fg_id,q.quantity,q.total_amount,c.customer_name,c.email,c.phone,c.address,c.city,c.province,COALESCE(si.product_name,q.product_code,'Product') product_name FROM sales_quotations q JOIN customers c ON c.cus_id=q.customer_id LEFT JOIN inventory si ON BINARY si.product_code=BINARY q.product_code WHERE q.sq_id=? AND q.customer_id=? AND q.admin_status='Approved' LIMIT 1");
     $st->execute([$id, (int)$user['customer_id']]);
     $q = $st->fetch();
 } catch (Throwable $e) {

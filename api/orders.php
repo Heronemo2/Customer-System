@@ -18,7 +18,7 @@ try {
                    (SELECT i.invoice_no FROM sales_invoices i WHERE i.order_id=so.so_id ORDER BY i.inv_id DESC LIMIT 1) invoice_no,
                    (SELECT i.status FROM sales_invoices i WHERE i.order_id=so.so_id ORDER BY i.inv_id DESC LIMIT 1) invoice_status,
                    COALESCE(so.total_amount,po.total_amount,q.total_amount) total_amount,
-                   fg.item_name product_name,fg.item_code image_code
+                   si.product_name product_name,si.product_code image_code
             FROM customer_order_requests r
             LEFT JOIN sales_quotations q ON q.sq_id=COALESCE(
                 r.quotation_id,
@@ -28,7 +28,7 @@ try {
             ) AND q.admin_status='Approved'
             LEFT JOIN purchase_orders po ON po.quotation_id=q.sq_id AND po.customer_id=r.customer_id
             LEFT JOIN sales_orders so ON so.quotation_id=q.sq_id AND so.customer_id=r.customer_id
-            LEFT JOIN inventory_system.finished_goods fg ON BINARY fg.item_code=BINARY r.product_code
+            LEFT JOIN inventory si ON BINARY si.product_code=BINARY r.product_code
             WHERE r.customer_id=?";
     $params = [(int)$user['customer_id']];
     if (isset($_GET['number']) && trim((string)$_GET['number']) !== '') {

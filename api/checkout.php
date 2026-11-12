@@ -10,14 +10,18 @@ if (!is_array($items) || !$items) respond(['error' => 'Your request cart is empt
 $pdo = db();
 try {
     $shippingFee = (float)customer_shipping_quote($pdo, $user)['shipping_fee'];
+    $catalogById = [];
+    foreach (customer_inventory_finished_goods() as $catalogItem) $catalogById[(int)$catalogItem['item_id']] = $catalogItem;
     $pdo->beginTransaction();
     $valid = [];
     foreach ($items as $item) {
         $productId = (int)($item['product_id'] ?? $item['variant_id'] ?? 0);
         $quantity = (int)($item['quantity'] ?? $item['qty'] ?? 0);
         if ($productId < 1 || $quantity < 1) continue;
-        $stmt = $pdo->prepare("SELECT fg.fg_id,fg.item_code,fg.item_name,si.stock_quantity AS quantity,si.unit_price FROM inventory_system.finished_goods fg JOIN inventory si ON BINARY si.product_code=BINARY fg.item_code WHERE fg.fg_id=? AND fg.status='Active' AND si.status='Active' LIMIT 1");
-        $stmt->execute([$productId]);
+        $catalogItem = $catalogById[$productId] ?? null;
+        if (!$catalogItem) throw new RuntimeException('A product in your cart is no longer available.');
+        $stmt = $pdo->prepare("SELECT product_code item_code,product_name item_name,stock_quantity quantity,unit_price FROM inventory WHERE BINARY product_code=BINARY ? AND status='Active' LIMIT 1");
+        $stmt->execute([(string)$catalogItem['item_code']]);
         $product = $stmt->fetch();
         if (!$product) throw new RuntimeException('A product in your cart is no longer available.');
         if ((float)$product['quantity'] <= 0) throw new RuntimeException('A selected size is no longer in stock. Please remove it and choose an available size.');

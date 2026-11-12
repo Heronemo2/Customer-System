@@ -6,6 +6,56 @@ const DB_USER = 'root';
 const DB_PASS = '';
 const CURRENCY = 'PHP';
 
+function customer_inventory_environment_value(string $name): string {
+    $value = getenv($name);
+    if ($value !== false && trim((string)$value) !== '') return trim((string)$value);
+    foreach ([$_SERVER[$name] ?? null, $_ENV[$name] ?? null] as $value) {
+        if (is_string($value) && trim($value) !== '') return trim($value);
+    }
+    return '';
+}
+
+function customer_inventory_api_request(string $endpoint): array {
+    $baseUrl = customer_inventory_environment_value('INVENTORY_API_BASE_URL') ?: 'http://localhost/Inventory_System/api';
+    $apiKey = customer_inventory_environment_value('INVENTORY_API_KEY');
+    if ($apiKey === '' || !preg_match('#^https?://#i', $baseUrl)) {
+        throw new RuntimeException('Inventory catalog is not configured. Set INVENTORY_API_BASE_URL and INVENTORY_API_KEY.');
+    }
+    if (!function_exists('curl_init')) throw new RuntimeException('Inventory catalog is unavailable on this server.');
+    $url = rtrim($baseUrl, '/') . '/' . $endpoint;
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => ['Accept: application/json', 'X-API-Key: ' . $apiKey, 'X-API-Team: Sales'],
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+    ]);
+    $body = curl_exec($curl);
+    $error = curl_error($curl);
+    $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+    if ($body === false) throw new RuntimeException('Could not reach the Inventory catalog: ' . $error);
+    $response = json_decode($body, true);
+    if ($status < 200 || $status >= 300 || !is_array($response) || empty($response['success'])) {
+        $message = is_array($response) ? (string)($response['message'] ?? '') : '';
+        throw new RuntimeException($message !== '' ? $message : 'Inventory catalog request failed (HTTP ' . $status . ').');
+    }
+    return $response;
+}
+
+function customer_inventory_finished_goods(): array {
+    static $items = null;
+    if ($items !== null) return $items;
+    $data = customer_inventory_api_request('items.php')['data'] ?? null;
+    if (!is_array($data) || !is_array($data['items'] ?? null)) throw new RuntimeException('Inventory returned an invalid item catalog.');
+    $items = array_values(array_filter($data['items'], static fn($item) =>
+        ($item['item_type'] ?? '') === 'Finished Good' && ($item['status'] ?? '') === 'Active'
+    ));
+    return $items;
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     session_name('CUSTOMER_SYSTEM_SESSID');
     session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);

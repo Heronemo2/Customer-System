@@ -7,109 +7,85 @@ try {
     $shippingError = null;
     $customer = current_user();
     if ($customer) {
-        try {
-            $shippingQuote = customer_shipping_quote($pdo, $customer);
-        } catch (Throwable $shippingException) {
-            $shippingError = $shippingException->getMessage();
-        }
-    }
-    $where = ["status = 'Active'"];
-    $params = [];
-
-    if (!empty($_GET['id'])) {
-        $where[] = 'fg_id = ?';
-        $params[] = (int)$_GET['id'];
-    }
-    if (!empty($_GET['ids'])) {
-        $ids = array_values(array_filter(array_map('intval', explode(',', $_GET['ids']))));
-        if (!$ids) {
-            respond(['currency' => CURRENCY, 'products' => [], 'categories' => []]);
-        }
-        $where[] = 'fg_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
-        $params = array_merge($params, $ids);
-    }
-    if (!empty($_GET['category'])) {
-        $where[] = "LOWER(REPLACE(REPLACE(brand, ' ', '-'), '&', 'and')) = ?";
-        $params[] = $_GET['category'];
-    }
-    foreach (preg_split('/\s+/', trim($_GET['q'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) as $word) {
-        $where[] = '(item_name LIKE ? OR item_code LIKE ? OR brand LIKE ?)';
-        array_push($params, "%$word%", "%$word%", "%$word%");
+        try { $shippingQuote = customer_shipping_quote($pdo, $customer); }
+        catch (Throwable $shippingException) { $shippingError = $shippingException->getMessage(); }
     }
 
-    $sort = [
-        'price_asc' => 'item_name ASC',
-        'price_desc' => 'item_name DESC',
-        'newest' => 'fg_id DESC',
-    ][$_GET['sort'] ?? ''] ?? 'item_name ASC';
-    $limit = isset($_GET['limit']) ? max(1, min(60, (int)$_GET['limit'])) : 60;
-    $stmt = $pdo->prepare(
-        'SELECT fg_id,item_code,item_name,brand,size,unit,quantity,description,status
-         FROM inventory_system.finished_goods
-         WHERE ' . implode(' AND ', $where) . ' ORDER BY ' . $sort . ' LIMIT ' . $limit
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll();
+    $catalog = customer_inventory_finished_goods();
+    $stocks = $pdo->query("SELECT product_code,product_name,brand,size,unit,stock_quantity,unit_price FROM inventory WHERE status='Active'")->fetchAll();
+    $stockByCode = [];
+    foreach ($stocks as $stock) $stockByCode[(string)$stock['product_code']] = $stock;
 
-    // Sales inventory owns sellable stock and fixed pricing. Expose stocked
-    // sizes, including unpriced ones so staff can see what still needs a price.
-    $variantRows = $pdo->query(
-        "SELECT fg.fg_id,fg.item_name,fg.brand,
-                COALESCE(NULLIF(si.size, ''), fg.size) AS size,
-                COALESCE(NULLIF(si.unit, ''), fg.unit) AS unit,
-                si.stock_quantity AS quantity,si.unit_price
-         FROM inventory_system.finished_goods fg
-         JOIN inventory si ON BINARY si.product_code = BINARY fg.item_code
-         WHERE fg.status = 'Active' AND si.status = 'Active'
-           AND si.stock_quantity > 0
-         ORDER BY size"
-    )->fetchAll();
-    $availableVariants = [];
-    foreach ($variantRows as $variantRow) {
-        $groupKey = (string)$variantRow['item_name'] . "\0" . (string)($variantRow['brand'] ?? '');
-        $availableVariants[$groupKey][] = [
-            'id' => (int)$variantRow['fg_id'],
-            'size' => trim(($variantRow['size'] ?? '') . ' ' . ($variantRow['unit'] ?? '')) ?: 'Standard',
-            'stock' => (int)$variantRow['quantity'],
-            'price' => (float)$variantRow['unit_price'],
-        ];
-    }
-
+    $hasIdFilter = isset($_GET['id']) || isset($_GET['ids']);
+    $requestedIds = [];
+    if (isset($_GET['id']) && (int)$_GET['id'] > 0) $requestedIds[(int)$_GET['id']] = true;
+    if (isset($_GET['ids'])) foreach (array_filter(array_map('intval', explode(',', (string)$_GET['ids']))) as $id) $requestedIds[$id] = true;
     $products = [];
-    foreach ($rows as $row) {
-        $id = (int)$row['fg_id'];
+    $groupVariants = [];
+    $catalogRows = [];
+    foreach ($catalog as $item) {
+        $code = (string)($item['item_code'] ?? '');
+        if ($code === '' || !isset($stockByCode[$code])) continue;
+        $stock = $stockByCode[$code];
+        $item['brand'] = (string)($stock['brand'] ?? '');
+        $item['size'] = (string)($stock['size'] ?: ($item['size'] ?? ''));
+        $item['unit'] = (string)($stock['unit'] ?: ($item['unit'] ?? 'pcs'));
+        $item['sales_quantity'] = (float)$stock['stock_quantity'];
+        $item['unit_price'] = (float)$stock['unit_price'];
+        $catalogRows[] = $item;
+        $groupKey = (string)$item['item_name'] . "\0" . $item['brand'];
+        if ($item['sales_quantity'] > 0) {
+            $groupVariants[$groupKey][] = [
+                'id' => (int)$item['item_id'],
+                'size' => trim($item['size'] . ' ' . $item['unit']) ?: 'Standard',
+                'stock' => (int)$item['sales_quantity'],
+                'price' => $item['unit_price'],
+            ];
+        }
+    }
+
+    $query = trim((string)($_GET['q'] ?? ''));
+    $category = trim((string)($_GET['category'] ?? ''));
+    $sort = (string)($_GET['sort'] ?? '');
+    $limit = isset($_GET['limit']) ? max(1, min(60, (int)$_GET['limit'])) : 60;
+    foreach ($catalogRows as $row) {
+        $id = (int)$row['item_id'];
+        if ($hasIdFilter && !isset($requestedIds[$id])) continue;
+        $brandSlug = strtolower(str_replace(['&', ' '], ['and', '-'], (string)$row['brand']));
+        if ($category !== '' && $category !== $brandSlug) continue;
+        if ($query !== '' && stripos($row['item_name'] . ' ' . $row['item_code'] . ' ' . $row['brand'], $query) === false) continue;
         $code = (string)$row['item_code'];
         $safeCode = preg_match('/^[A-Za-z0-9_-]+$/', $code) ? $code : '';
-        $image = $safeCode && is_file(__DIR__ . '/../assets/shoes/cut/' . $safeCode . '.svg')
-            ? 'assets/shoes/cut/' . $safeCode . '.svg'
-            : 'assets/shoes/cut/RUN-001.svg';
-        $groupKey = (string)$row['item_name'] . "\0" . (string)($row['brand'] ?? '');
+        $groupKey = (string)$row['item_name'] . "\0" . (string)$row['brand'];
         $products[] = [
             'id' => $id,
             'sku' => $code,
             'name' => $row['item_name'],
-            'description' => $row['description'] ?? ('Brand: ' . ($row['brand'] ?? '') . ' | Size: ' . ($row['size'] ?? '') . ' | Unit: ' . ($row['unit'] ?? '')),
-            'price' => (float)($availableVariants[$groupKey][0]['price'] ?? 0),
+            'description' => 'Brand: ' . $row['brand'] . ' | Size: ' . $row['size'] . ' | Unit: ' . $row['unit'],
+            'price' => (float)($groupVariants[$groupKey][0]['price'] ?? 0),
             'sale_price' => null,
             'gender' => 'all',
             'is_new' => false,
-            'image_url' => $image,
+            'image_url' => $safeCode && is_file(__DIR__ . '/../assets/shoes/cut/' . $safeCode . '.svg') ? 'assets/shoes/cut/' . $safeCode . '.svg' : 'assets/shoes/cut/RUN-001.svg',
             'category' => $row['brand'] ?: 'Products',
-            'category_slug' => 'products',
+            'category_slug' => $brandSlug ?: 'products',
             'brand' => $row['brand'],
             'size' => $row['size'],
             'unit' => $row['unit'],
-            'variants' => $availableVariants[$groupKey] ?? [],
+            'variants' => $groupVariants[$groupKey] ?? [],
         ];
+        if (count($products) >= $limit) break;
     }
+    if ($sort === 'newest') $products = array_reverse($products);
+    elseif ($sort === 'price_asc') usort($products, static fn($a, $b) => $a['price'] <=> $b['price']);
+    elseif ($sort === 'price_desc') usort($products, static fn($a, $b) => $b['price'] <=> $a['price']);
 
-    $categories = $pdo->query(
-        "SELECT DISTINCT brand name, LOWER(REPLACE(REPLACE(brand, ' ', '-'), '&', 'and')) slug
-         FROM inventory_system.finished_goods
-         WHERE status = 'Active' AND brand IS NOT NULL AND brand <> ''
-         ORDER BY brand"
-    )->fetchAll();
+    $categoryNames = [];
+    foreach ($catalogRows as $row) if ($row['brand'] !== '') $categoryNames[$row['brand']] = true;
+    $categories = [];
+    foreach (array_keys($categoryNames) as $name) $categories[] = ['name' => $name, 'slug' => strtolower(str_replace(['&', ' '], ['and', '-'], $name))];
     respond(['currency' => CURRENCY, 'shipping_quote' => $shippingQuote, 'shipping_error' => $shippingError, 'products' => $products, 'categories' => $categories]);
 } catch (Throwable $e) {
-    respond(['error' => 'Could not load products. Check the Inventory System database connection and finished_goods table.'], 500);
+    error_log('Customer product catalog error: ' . $e->getMessage());
+    respond(['error' => 'Could not load products from Inventory. Check the Inventory API configuration and Sales pricing data.'], 502);
 }
