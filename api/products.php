@@ -34,14 +34,12 @@ try {
         $item['unit_price'] = (float)$stock['unit_price'];
         $catalogRows[] = $item;
         $groupKey = (string)$item['item_name'] . "\0" . $item['brand'];
-        if ($item['sales_quantity'] > 0) {
-            $groupVariants[$groupKey][] = [
-                'id' => (int)$item['item_id'],
-                'size' => trim($item['size'] . ' ' . $item['unit']) ?: 'Standard',
-                'stock' => (int)$item['sales_quantity'],
-                'price' => $item['unit_price'],
-            ];
-        }
+        $groupVariants[$groupKey][] = [
+            'id' => (int)$item['item_id'],
+            'size' => trim($item['size'] . ' ' . $item['unit']) ?: 'Standard',
+            'stock' => (int)$item['sales_quantity'],
+            'price' => $item['unit_price'],
+        ];
     }
 
     $query = trim((string)($_GET['q'] ?? ''));

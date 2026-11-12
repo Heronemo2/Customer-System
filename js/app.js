@@ -327,7 +327,7 @@
 
   function productCard(product) {
     const outOfStock = product.variants.every((variant) => variant.stock < 1);
-    return `<a class="card" href="product.php?id=${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="${esc(product.name)}" loading="lazy"></div><div class="info"><span class="cat">${esc(product.brand || product.category || "Product")} · ${esc(product.sku)}</span><h3>${esc(product.name)}</h3>${outOfStock ? '<span class="muted">Currently unavailable</span>' : ""}</div></a>`;
+    return `<a class="card" href="product.php?id=${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="${esc(product.name)}" loading="lazy"></div><div class="info"><span class="cat">${esc(product.brand || product.category || "Product")} · ${esc(product.sku)}</span><h3>${esc(product.name)}</h3>${outOfStock ? '<span class="muted">Available to request · may need replenishment</span>' : ""}</div></a>`;
   }
 
   function orderHtml(order) {
@@ -844,10 +844,10 @@
             await api("api/products.php?id=" + encodeURIComponent(param("id")))
           ).products[0];
           if (!P) throw 0;
-          V = P.variants[0] || { stock: 0, id: null };
+          V = null;
           document.title = P.name + " — Quick Step";
           $("#pdp").innerHTML =
-            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price" id="selectedPrice">Select a size to see the price</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">Inventory stock is checked again when you submit your request.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn" ${V.stock < 1 ? "disabled" : ""}>Add to request</button><p class="muted">The fixed price for the selected size will be used in your quotation.</p></div></div>`;
+            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price" id="selectedPrice">Select a size to see the price</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">You can request more than the current Sales stock. Sales will confirm availability with your quotation.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn">Add to request</button><p class="muted">The fixed price for the selected size will be used in your quotation.</p></div></div>`;
           $("#qty").closest(".qtyrow").insertAdjacentHTML(
             "beforebegin",
             `<div class="qtyrow"><label>Size <select id="sizeSelect" required><option value="">Select a size</option>${P.variants.map((variant) => `<option value="${variant.id}">${esc(variant.size)}</option>`).join("")}</select></label></div>`,
@@ -860,6 +860,10 @@
               ? `${peso(V.price)} per ${P.unit || "unit"}`
               : V ? "Fixed price not set yet" : "Select a size to see fixed price";
           };
+          if (P.variants.length === 1) {
+            $("#sizeSelect").value = String(P.variants[0].id);
+            $("#sizeSelect").dispatchEvent(new Event("change"));
+          }
           $("#addBtn").onclick = async () => {
             if (!V) return;
             const q = Math.max(1, parseInt($("#qty").value) || 1);

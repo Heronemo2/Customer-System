@@ -24,9 +24,9 @@ try {
         $stmt->execute([(string)$catalogItem['item_code']]);
         $product = $stmt->fetch();
         if (!$product) throw new RuntimeException('A product in your cart is no longer available.');
-        if ((float)$product['quantity'] <= 0) throw new RuntimeException('A selected size is no longer in stock. Please remove it and choose an available size.');
         if ((float)$product['unit_price'] <= 0) throw new RuntimeException('A fixed price is not set for a selected item. Please remove it from your cart.');
-        // Requests do not deduct Inventory stock.
+        // Customer requests are quotations, so an order may exceed current Sales stock.
+        // Sales checks availability later and requests replenishment after PO creation.
         $valid[] = ['code' => $product['item_code'], 'qty' => $quantity, 'name' => $product['item_name']];
     }
     if (!$valid) throw new RuntimeException('Add at least one valid product and quantity.');
