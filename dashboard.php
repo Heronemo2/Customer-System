@@ -5,26 +5,29 @@ require __DIR__ . '/includes/layout-start.php';
 ?>
           <div class="page-head">
             <div>
-              <p class="eyebrow" id="welcome">DASHBOARD</p>
-              <h1>Available products</h1>
-              <p class="muted">Browse everything on offer and add items to your request cart.</p>
+              <p class="eyebrow">CUSTOMER DASHBOARD</p>
+              <h1>Welcome to Quick Step</h1>
+              <p class="muted">Browse products and send Sales a quotation request, or check the progress of requests you have already submitted.</p>
             </div>
           </div>
-          <div class="notice" id="reviewBanner" hidden></div>
-          <div class="toolbar">
-            <form class="search" id="searchForm" role="search">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l5 5"/></svg>
-              <input id="q" type="search" placeholder="Search products" aria-label="Search products" />
-            </form>
-            <label>Sort
-              <select id="sort">
-                <option value="">Name A–Z</option>
-                <option value="price_desc">Name Z–A</option>
-                <option value="newest">Newest</option>
-              </select>
-            </label>
+          <div class="dashboard-actions">
+            <a class="dashboard-action" href="ordering.php">
+              <span class="eyebrow">START HERE</span>
+              <h2>Order a quotation</h2>
+              <p>Choose a product, size, and quantity to request a quotation from Sales.</p>
+              <span class="btn">Browse products</span>
+            </a>
+            <a class="dashboard-action" href="requests.php">
+              <span class="eyebrow">REQUESTS</span>
+              <h2>Recent Requests</h2>
+              <p>Review the status and progress of your product requests.</p>
+              <span class="btn dark">View requests</span>
+            </a>
+            <a class="dashboard-action" href="quotations.php">
+              <span class="eyebrow">QUOTATIONS</span>
+              <h2>My Orders</h2>
+              <p>Review quotations prepared by Sales and respond to them.</p>
+              <span class="btn dark">View quotations</span>
+            </a>
           </div>
-          <div class="chips" id="chips" aria-label="Product categories"></div>
-          <p class="muted" id="count"></p>
-          <div class="grid" id="grid"></div>
 <?php require __DIR__ . '/includes/layout-end.php'; ?>

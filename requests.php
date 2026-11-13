@@ -9,7 +9,7 @@ require __DIR__ . '/includes/layout-start.php';
               <h1>Recent requests</h1>
               <p class="muted">Products you have asked to order, newest first.</p>
             </div>
-            <a class="btn" href="dashboard.php">Browse products</a>
+            <a class="btn" href="ordering.php">Browse products</a>
           </div>
           <div id="requests" class="request-list">
             <p class="muted">Loading your requests…</p>

@@ -14,10 +14,19 @@ try {
     foreach (customer_inventory_finished_goods() as $catalogItem) $catalogById[(int)$catalogItem['item_id']] = $catalogItem;
     $pdo->beginTransaction();
     $valid = [];
+    $quantitiesByProduct = [];
     foreach ($items as $item) {
         $productId = (int)($item['product_id'] ?? $item['variant_id'] ?? 0);
-        $quantity = (int)($item['quantity'] ?? $item['qty'] ?? 0);
+        $rawQuantity = $item['quantity'] ?? $item['qty'] ?? 0;
+        if (!is_numeric($rawQuantity) || floor((float)$rawQuantity) !== (float)$rawQuantity) {
+            throw new RuntimeException('Product quantity must be a whole number.');
+        }
+        $quantity = (int)$rawQuantity;
         if ($productId < 1 || $quantity < 1) continue;
+        $quantitiesByProduct[$productId] = ($quantitiesByProduct[$productId] ?? 0) + $quantity;
+        if ($quantitiesByProduct[$productId] > 1000) {
+            throw new RuntimeException('You can request up to 1,000 units of each product.');
+        }
         $catalogItem = $catalogById[$productId] ?? null;
         if (!$catalogItem) throw new RuntimeException('A product in your cart is no longer available.');
         $stmt = $pdo->prepare("SELECT product_code item_code,product_name item_name,stock_quantity quantity,unit_price FROM inventory WHERE BINARY product_code=BINARY ? AND status='Active' LIMIT 1");

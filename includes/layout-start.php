@@ -12,6 +12,7 @@ $root = dirname(__DIR__);
 
 $icons = [
     'cart'      => '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.3a1 1 0 0 0 1-.8L21 7H6"/>',
+    'ordering'  => '<path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="19" r="2"/>',
     'dashboard' => '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
     'requests'  => '<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>',
     'quotes'    => '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>',
@@ -25,7 +26,7 @@ $icons = [
 
 $items = [
     ['dashboard', 'dashboard.php',  'Dashboard',             ''],
-    ['cart',      'cart.php',       'Request Cart',          '<span class="badge" id="cartCount" hidden>0</span>'],
+    ['ordering',  'ordering.php',   'Ordering',              ''],
     ['requests',  'requests.php',   'Recent Requests',       ''],
     ['quotes',    'quotations.php', 'My Orders', '<span class="badge" id="quoteCount" hidden>0</span>'],
     ['invoice',   'invoices.php',   'Sales Invoices',         ''],

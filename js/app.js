@@ -2,6 +2,7 @@
   /* Quick Step storefront UI helpers. */
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const MAX_ORDER_QTY = 1000;
   const peso = (n) =>
     "₱" +
     Number(n || 0).toLocaleString("en-PH", {
@@ -230,7 +231,10 @@
   }
 
   const Cart = {
-    get: () => JSON.parse(localStorage.getItem("stride_cart") || "[]"),
+    get: () => JSON.parse(localStorage.getItem("stride_cart") || "[]").map((item) => ({
+      ...item,
+      qty: Math.min(MAX_ORDER_QTY, Math.max(1, parseInt(item.qty) || 1)),
+    })),
     set(cart) {
       localStorage.setItem("stride_cart", JSON.stringify(cart));
       Cart.badge();
@@ -239,20 +243,24 @@
     add(productId, variantId, quantity = 1) {
       const cart = Cart.get();
       const item = cart.find((entry) => entry.variant_id === variantId);
-      if (item) item.qty += quantity;
+      const nextQty = (item ? Number(item.qty) : 0) + Number(quantity);
+      if (item) item.qty = Math.min(MAX_ORDER_QTY, nextQty);
       else
         cart.push({
           product_id: productId,
           variant_id: variantId,
-          qty: quantity,
+          qty: Math.min(MAX_ORDER_QTY, nextQty),
         });
       Cart.set(cart);
+      return nextQty <= MAX_ORDER_QTY;
     },
     setQty(variantId, quantity) {
       Cart.set(
         Cart.get()
           .map((item) =>
-            item.variant_id == variantId ? { ...item, qty: quantity } : item,
+            item.variant_id == variantId
+              ? { ...item, qty: Math.min(MAX_ORDER_QTY, Number(quantity)) }
+              : item,
           )
           .filter((item) => item.qty > 0),
       );
@@ -280,7 +288,9 @@
       const address = await mePromise;
       return cart
         .map((item) => {
-          const product = products.find((entry) => entry.id == item.product_id);
+          const product = products.find((entry) =>
+            entry.id == item.product_id || entry.variants.some((variant) => variant.id == item.variant_id),
+          );
           const variant =
             product &&
             product.variants.find((entry) => entry.id == item.variant_id);
@@ -327,7 +337,7 @@
 
   function productCard(product) {
     const outOfStock = product.variants.every((variant) => variant.stock < 1);
-    return `<a class="card" href="product.php?id=${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="${esc(product.name)}" loading="lazy"></div><div class="info"><span class="cat">${esc(product.brand || product.category || "Product")} · ${esc(product.sku)}</span><h3>${esc(product.name)}</h3>${outOfStock ? '<span class="muted">Available to request · may need replenishment</span>' : ""}</div></a>`;
+    return `<button class="card product-select-card" type="button" data-order-product="${product.id}"><div class="shot"><img src="${esc(product.image_url)}" alt="" loading="lazy"></div><div class="info"><span class="cat">Quick Step</span><h3>${esc(product.name)}</h3>${outOfStock ? '<span class="muted">Available to request · may need replenishment</span>' : ""}</div></button>`;
   }
 
   function orderHtml(order) {
@@ -590,13 +600,11 @@
         $("#lines").innerHTML = L.length
           ? L.map(
             (l) =>
-              `<div class="line"><a href="product.php?id=${l.p.id}"><img src="${esc(l.p.image_url)}" alt=""></a><div><strong>${esc(l.p.name)}</strong><br><span class="muted">${esc(l.v.size)} / Code ${esc(l.p.sku)}</span><div class="qty"><button data-d="-1" data-v="${l.v.id}" aria-label="Decrease">−</button>${l.qty}<button data-d="1" data-v="${l.v.id}" aria-label="Increase">+</button></div><button class="rm" data-rm="${l.v.id}">Remove</button></div><strong>${peso(l.v.price)} each</strong></div>`,
+              `<div class="line"><a href="product.php?id=${l.p.id}"><img src="${esc(l.p.image_url)}" alt=""></a><div><strong>${esc(l.p.name)}</strong><br><span class="muted">${esc(l.v.size)} / Code ${esc(l.v.code || l.p.sku)}</span><div class="qty"><button data-d="-1" data-v="${l.v.id}" aria-label="Decrease">−</button>${l.qty}<button data-d="1" data-v="${l.v.id}" aria-label="Increase" ${l.qty >= MAX_ORDER_QTY ? "disabled" : ""}>+</button></div><button class="rm" data-rm="${l.v.id}">Remove</button></div></div>`,
           ).join("")
           : '<div class="box"><p>Your cart is empty.</p><a class="btn" href="dashboard.php">Browse products</a></div>';
         const totals = summaryTotals(L);
-        $("#sSub").textContent = peso(totals.subtotal);
         $("#sShip").textContent = totals.shipping == null ? "Sign in to calculate" : peso(totals.shipping);
-        $("#sTot").textContent = totals.total == null ? "—" : peso(totals.total);
         $("#go").style.display = L.length ? "" : "none";
         $("#note").textContent = L.length
           ? (totals.shipping == null ? (L[0]?.p?.shipping_error || "Sign in and complete your delivery address to calculate road shipping.") : `Road distance: ${Number(L[0]?.p?.shipping_quote?.distance_km || 0).toFixed(2)} km at ${peso(L[0]?.p?.shipping_quote?.rate_per_km || 0)}/km. The fixed inventory price will be used in your quotation.`)
@@ -625,13 +633,11 @@
         $("#lines").innerHTML = lines
           .map(
             (line) =>
-              `<div class="oi"><img src="${esc(line.p.image_url)}" alt=""><div class="oi-info"><strong>${esc(line.p.name)}</strong><br><span class="muted">${esc(line.v.size)} / ${esc(line.p.sku)} · Qty ${line.qty}</span></div><span>${peso(line.v.price * line.qty)}</span></div>`,
+              `<div class="oi"><img src="${esc(line.p.image_url)}" alt=""><div class="oi-info"><strong>${esc(line.p.name)}</strong><br><span class="muted">${esc(line.v.size)} / ${esc(line.v.code || line.p.sku)} · Qty ${line.qty}</span></div></div>`,
           )
           .join("");
         const totals = summaryTotals(lines);
-        $("#sSub").textContent = peso(totals.subtotal);
         $("#sShip").textContent = totals.shipping == null ? "Rate unavailable" : peso(totals.shipping);
-        $("#sTot").textContent = totals.total == null ? "—" : peso(totals.total);
         const shippingUnavailable = totals.shipping == null;
         $("#err").textContent = shippingUnavailable
           ? (lines[0]?.p?.shipping_error || "Road shipping could not be calculated. Check your barangay, city, and province, or contact Sales.")
@@ -673,6 +679,28 @@
       };
       let cats = [];
       let timer;
+      const orderDialog = $("#orderDialog");
+      const requestedProductId = param("product_id");
+
+      async function openOrderDialog(productId) {
+        const error = $("#orderError");
+        error.textContent = "";
+        try {
+          const { products } = await api("api/products.php?id=" + encodeURIComponent(productId));
+          const product = products[0];
+          if (!product) throw new Error("This product is no longer available.");
+          $("#orderProductName").textContent = product.name;
+          $("#orderProductDescription").textContent = product.description || "Select a size and quantity to request a quotation.";
+          $("#orderVariant").innerHTML = '<option value="">Select a size</option>' + product.variants.map((variant) => {
+            const sizeNumber = String(variant.size).match(/\d+/);
+            return `<option value="${variant.id}">${esc(sizeNumber ? sizeNumber[0] : variant.size)}</option>`;
+          }).join("");
+          $("#orderQuantity").value = "1";
+          orderDialog.showModal();
+        } catch (error) {
+          toast(error.message || "Could not load this product.");
+        }
+      }
 
       function chips() {
         $("#chips").innerHTML = [{ slug: "", name: "All" }, ...cats]
@@ -690,7 +718,7 @@
         history.replaceState(
           null,
           "",
-          "dashboard.php" + (qs.toString() ? "?" + qs : ""),
+          "ordering.php" + (qs.toString() ? "?" + qs : ""),
         );
         try {
           const d = await api("api/products.php?" + qs);
@@ -734,6 +762,38 @@
         load();
       };
 
+      $("#grid").addEventListener("click", (event) => {
+        const card = event.target.closest("[data-order-product]");
+        if (card) openOrderDialog(card.dataset.orderProduct);
+      });
+      $("#closeOrderDialog").onclick = () => orderDialog.close();
+      orderDialog.addEventListener("click", (event) => {
+        if (event.target === orderDialog) orderDialog.close();
+      });
+      $("#orderForm").onsubmit = async (event) => {
+        event.preventDefault();
+        const submit = $("#orderSubmit");
+        const errorHost = $("#orderError");
+        const variantId = Number($("#orderVariant").value);
+        const quantity = Number($("#orderQuantity").value);
+        errorHost.textContent = "";
+        if (!variantId || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ORDER_QTY) {
+          errorHost.textContent = "Select a size and enter a quantity from 1 to 1,000.";
+          return;
+        }
+        submit.disabled = true;
+        try {
+          await requireLogin();
+          const result = await api("api/checkout.php", {
+            items: [{ product_id: variantId, quantity }],
+          });
+          location.href = "order-success.php?o=" + encodeURIComponent(result.request_number || result.order_number);
+        } catch (requestError) {
+          errorHost.textContent = requestError.message || "Could not send the quotation request.";
+          submit.disabled = false;
+        }
+      };
+
       mePromise.then((user) => {
         if (user?.first_name)
           $("#welcome").textContent = `WELCOME BACK, ${user.first_name.toUpperCase()}`;
@@ -749,7 +809,9 @@
           banner.hidden = false;
         })
         .catch(() => {});
-      load();
+      load().then(() => {
+        if (requestedProductId) openOrderDialog(requestedProductId);
+      });
     }
   }
 
@@ -847,18 +909,15 @@
           V = null;
           document.title = P.name + " — Quick Step";
           $("#pdp").innerHTML =
-            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><span class="price" id="selectedPrice">Select a size to see the price</span><p>${esc(P.description || "Contact Sales for product details and pricing.")}</p><p class="muted">Product code: ${esc(P.sku)}</p><p class="muted">You can request more than the current Sales stock. Sales will confirm availability with your quotation.</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" value="1"></label></div><button class="btn" id="addBtn">Add to request</button><p class="muted">The fixed price for the selected size will be used in your quotation.</p></div></div>`;
+            `<div class="crumbs"><a href="dashboard.php">Products</a> / ${esc(P.sku)}</div><div class="pdp"><div class="big"><img src="${esc(P.image_url)}" alt="${esc(P.name)}"></div><div><span class="cat">${esc(P.brand || P.category || "Product")}</span><h1>${esc(P.name)}</h1><p>${esc(P.description || "A footwear style from the Quick Step collection.")}</p><div class="qtyrow"><label>Quantity <input id="qty" type="number" min="1" max="1000" value="1"></label></div><button class="btn" id="addBtn">Add to request</button><p class="muted">Maximum 1,000 units per product.</p></div></div>`;
           $("#qty").closest(".qtyrow").insertAdjacentHTML(
             "beforebegin",
-            `<div class="qtyrow"><label>Size <select id="sizeSelect" required><option value="">Select a size</option>${P.variants.map((variant) => `<option value="${variant.id}">${esc(variant.size)}</option>`).join("")}</select></label></div>`,
+            `<div class="qtyrow"><label>Size <select id="sizeSelect" required><option value="">Select a size</option>${P.variants.map((variant) => { const sizeNumber = String(variant.size).match(/\d+/); return `<option value="${variant.id}">${esc(sizeNumber ? sizeNumber[0] : variant.size)}</option>`; }).join("")}</select></label></div>`,
           );
           $("#addBtn").disabled = true;
           $("#sizeSelect").onchange = () => {
             V = P.variants.find((variant) => variant.id == $("#sizeSelect").value) || null;
             $("#addBtn").disabled = !V || Number(V.price) <= 0;
-            $("#selectedPrice").textContent = V && Number(V.price) > 0
-              ? `${peso(V.price)} per ${P.unit || "unit"}`
-              : V ? "Fixed price not set yet" : "Select a size to see fixed price";
           };
           if (P.variants.length === 1) {
             $("#sizeSelect").value = String(P.variants[0].id);
@@ -866,9 +925,12 @@
           }
           $("#addBtn").onclick = async () => {
             if (!V) return;
-            const q = Math.max(1, parseInt($("#qty").value) || 1);
-            Cart.add(V.id, V.id, q);
-            toast(P.name + " (" + V.size + ") added to request cart");
+            const requestedQty = Math.max(1, parseInt($("#qty").value) || 1);
+            const q = Math.min(MAX_ORDER_QTY, requestedQty);
+            const withinLimit = Cart.add(V.id, V.id, q) && requestedQty <= MAX_ORDER_QTY;
+            toast(withinLimit
+              ? P.name + " (" + V.size + ") added to request cart"
+              : "Maximum 1,000 units per product");
           };
           const rel = (await api("api/products.php?limit=5")).products
             .filter((x) => x.id !== P.id)
@@ -970,7 +1032,7 @@
           const { orders } = await api("api/orders.php");
           requestsHost.innerHTML = orders.length
             ? orders.map(orderHtml).join("")
-            : '<div class="empty-state"><h2>No requests yet</h2><p class="muted">Your submitted product requests will appear here.</p><a class="btn" href="dashboard.php">Browse products</a></div>';
+          : '<div class="empty-state"><h2>No requests yet</h2><p class="muted">Your submitted product requests will appear here.</p><a class="btn" href="ordering.php">Browse products</a></div>';
         } catch (error) {
           requestsHost.innerHTML = `<p class="error" role="alert">${esc(error.message)}</p>`;
         }
@@ -1092,7 +1154,7 @@
                   return `<article class="order" id="${esc(order.request_no)}"><header><div><strong>${esc(order.request_no)}</strong><br><span class="muted">${esc(product)} · Qty ${esc(order.quantity ?? "")}</span></div><span class="status">${esc(order.status || "Pending")}</span></header><ol class="steps">${stages(order, quotation)}</ol></article>`;
                 })
                 .join("")
-            : '<div class="empty-state"><h2>Nothing to track yet</h2><p class="muted">Once you submit a request, its progress will show up here.</p><a class="btn" href="dashboard.php">Browse products</a></div>';
+            : '<div class="empty-state"><h2>Nothing to track yet</h2><p class="muted">Once you submit a request, its progress will show up here.</p><a class="btn" href="ordering.php">Browse products</a></div>';
           if (location.hash) {
             const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
             if (target) target.scrollIntoView({ block: "center" });
@@ -1115,7 +1177,7 @@
           const order = result.orders[0];
           if (!order) throw new Error("Request not found");
           $("#ok").innerHTML =
-            `<h1>Request received</h1><p class="muted">Request <strong>${esc(order.request_no || order.order_number)}</strong> is now in your account. You can follow its progress in My requests. We’ll show the confirmed price here when it’s ready.</p><div style="text-align:left">${orderHtml(order)}</div><a class="btn" href="requests.php">View my requests</a> <a class="btn dark" href="dashboard.php">Continue shopping</a>`;
+            `<h1>Request received</h1><p class="muted">Request <strong>${esc(order.request_no || order.order_number)}</strong> is now in your account. You can follow its progress in My requests. We’ll show the confirmed price here when it’s ready.</p><div style="text-align:left">${orderHtml(order)}</div><a class="btn" href="requests.php">View my requests</a> <a class="btn dark" href="ordering.php">Continue shopping</a>`;
         } catch (error) {
           $("#ok").innerHTML =
             `<p class="error">${esc(error.message)}</p><a class="btn" href="requests.php">My requests</a>`;

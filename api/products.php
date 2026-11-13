@@ -36,6 +36,7 @@ try {
         $groupKey = (string)$item['item_name'] . "\0" . $item['brand'];
         $groupVariants[$groupKey][] = [
             'id' => (int)$item['item_id'],
+            'code' => (string)$item['item_code'],
             'size' => trim($item['size'] . ' ' . $item['unit']) ?: 'Standard',
             'stock' => (int)$item['sales_quantity'],
             'price' => $item['unit_price'],
@@ -46,21 +47,25 @@ try {
     $category = trim((string)($_GET['category'] ?? ''));
     $sort = (string)($_GET['sort'] ?? '');
     $limit = isset($_GET['limit']) ? max(1, min(60, (int)$_GET['limit'])) : 60;
+    $seenGroups = [];
     foreach ($catalogRows as $row) {
         $id = (int)$row['item_id'];
         if ($hasIdFilter && !isset($requestedIds[$id])) continue;
         $brandSlug = strtolower(str_replace(['&', ' '], ['and', '-'], (string)$row['brand']));
         if ($category !== '' && $category !== $brandSlug) continue;
         if ($query !== '' && stripos($row['item_name'] . ' ' . $row['item_code'] . ' ' . $row['brand'], $query) === false) continue;
+        $groupKey = (string)$row['item_name'] . "\0" . (string)$row['brand'];
+        if (isset($seenGroups[$groupKey])) continue;
+        $seenGroups[$groupKey] = true;
         $code = (string)$row['item_code'];
         $safeCode = preg_match('/^[A-Za-z0-9_-]+$/', $code) ? $code : '';
-        $groupKey = (string)$row['item_name'] . "\0" . (string)$row['brand'];
+        $variants = $groupVariants[$groupKey] ?? [];
         $products[] = [
             'id' => $id,
             'sku' => $code,
             'name' => $row['item_name'],
-            'description' => 'Brand: ' . $row['brand'] . ' | Size: ' . $row['size'] . ' | Unit: ' . $row['unit'],
-            'price' => (float)($groupVariants[$groupKey][0]['price'] ?? 0),
+            'description' => 'A footwear style from the Quick Step collection. Select your preferred size and quantity to request it.',
+            'price' => (float)($variants[0]['price'] ?? 0),
             'sale_price' => null,
             'gender' => 'all',
             'is_new' => false,
@@ -70,7 +75,7 @@ try {
             'brand' => $row['brand'],
             'size' => $row['size'],
             'unit' => $row['unit'],
-            'variants' => $groupVariants[$groupKey] ?? [],
+            'variants' => $variants,
         ];
         if (count($products) >= $limit) break;
     }
