@@ -361,7 +361,7 @@
     const items = (order.items || [])
       .map(
         (item) =>
-          `<div class="oi"><img src="${esc(item.image_url || "assets/shoes/cut/RUN-001.svg")}" alt=""><div class="oi-info"><strong>${esc(item.product_name || order.product_code || "Product")}</strong><br><span class="muted">Code ${esc(order.product_code || "")} · Qty ${esc(item.quantity ?? order.quantity ?? "")}</span></div></div>`,
+          `<div class="oi"><img src="${esc(item.image_url || "assets/shoes/cut/RUN-001.svg")}" alt=""><div class="oi-info"><strong>${esc(item.product_name || order.product_code || "Product")}</strong><br><span class="muted">Code ${esc(order.product_code || "")}${item.size ? ` · Size ${esc(item.size)}` : ""} · Qty ${esc(item.quantity ?? order.quantity ?? "")}</span></div></div>`,
       )
       .join("");
     const fulfillment = [
@@ -394,7 +394,7 @@
     const expired = isExpiredQuotation(quotation);
     const pending = quotation.customer_status === "Pending" && !expired;
     const statusText = expired ? "Expired" : quotation.customer_status;
-    return `<article class="order"><header><div><strong>${esc(quotation.quotation_no)}</strong><br><span class="muted">${esc(quotation.product_code)} · ${esc(quotation.quotation_date || "")}</span></div><strong>${peso(quotation.total_amount)}</strong></header><p>Quantity: ${esc(quotation.quantity)} · Status: <span class="status">${esc(statusText)}</span>${quotation.valid_until ? ` · Valid until ${esc(quotation.valid_until)}` : ""}</p>${order && (order.po_no || order.order_no) ? `<p class="muted">Purchase order: ${esc(order.po_no || "—")} · Order: ${esc(order.order_no || "—")}</p>` : ""}<div class="cta"><a class="btn dark" href="view_quotation.php?id=${encodeURIComponent(quotation.sq_id)}" target="_blank" rel="noopener">View quotation</a>${actions && pending ? `<button class="btn" data-approve="${quotation.sq_id}">Accept quotation</button><button class="btn dark" data-reject="${quotation.sq_id}">Decline</button>` : ""}${actions && expired ? `<button class="btn dark" data-delete="${quotation.sq_id}">Delete quotation</button>` : ""}</div></article>`;
+    return `<article class="order"><header><div><strong>${esc(quotation.quotation_no)}</strong><br><span class="muted">${esc(quotation.product_code)}${quotation.size ? ` · Size ${esc(quotation.size)}` : ""} · ${esc(quotation.quotation_date || "")}</span></div><strong>${peso(quotation.total_amount)}</strong></header><p>Quantity: ${esc(quotation.quantity)} · Status: <span class="status">${esc(statusText)}</span>${quotation.valid_until ? ` · Valid until ${esc(quotation.valid_until)}` : ""}</p>${order && (order.po_no || order.order_no) ? `<p class="muted">Purchase order: ${esc(order.po_no || "—")} · Order: ${esc(order.order_no || "—")}</p>` : ""}<div class="cta"><a class="btn dark" href="view_quotation.php?id=${encodeURIComponent(quotation.sq_id)}" target="_blank" rel="noopener">View quotation</a>${actions && pending ? `<button class="btn" data-approve="${quotation.sq_id}">Accept quotation</button><button class="btn dark" data-reject="${quotation.sq_id}">Decline</button>` : ""}${actions && expired ? `<button class="btn dark" data-delete="${quotation.sq_id}">Delete quotation</button>` : ""}</div></article>`;
   }
 
   function bindQuotationDecisions(host, onChange) {
@@ -654,6 +654,7 @@
               note: form.note.value,
               items: Cart.get().map((item) => ({
                 product_id: item.product_id,
+                variant_id: item.variant_id,
                 quantity: item.qty,
               })),
             });
@@ -785,7 +786,7 @@
         try {
           await requireLogin();
           const result = await api("api/checkout.php", {
-            items: [{ product_id: variantId, quantity }],
+            items: [{ variant_id: variantId, quantity }],
           });
           location.href = "order-success.php?o=" + encodeURIComponent(result.request_number || result.order_number);
         } catch (requestError) {

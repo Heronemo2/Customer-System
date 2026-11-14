@@ -16,19 +16,22 @@ try {
     $valid = [];
     $quantitiesByProduct = [];
     foreach ($items as $item) {
-        $productId = (int)($item['product_id'] ?? $item['variant_id'] ?? 0);
+        $variantId = (int)($item['variant_id'] ?? 0);
         $rawQuantity = $item['quantity'] ?? $item['qty'] ?? 0;
         if (!is_numeric($rawQuantity) || floor((float)$rawQuantity) !== (float)$rawQuantity) {
             throw new RuntimeException('Product quantity must be a whole number.');
         }
         $quantity = (int)$rawQuantity;
-        if ($productId < 1 || $quantity < 1) continue;
-        $quantitiesByProduct[$productId] = ($quantitiesByProduct[$productId] ?? 0) + $quantity;
-        if ($quantitiesByProduct[$productId] > 1000) {
+        if ($variantId < 1) throw new RuntimeException('Select a size for each product before submitting your request.');
+        if ($quantity < 1) continue;
+        $quantitiesByProduct[$variantId] = ($quantitiesByProduct[$variantId] ?? 0) + $quantity;
+        if ($quantitiesByProduct[$variantId] > 1000) {
             throw new RuntimeException('You can request up to 1,000 units of each product.');
         }
-        $catalogItem = $catalogById[$productId] ?? null;
+        $catalogItem = $catalogById[$variantId] ?? null;
         if (!$catalogItem) throw new RuntimeException('A product in your cart is no longer available.');
+        $size = trim((string)($catalogItem['size'] ?? ''));
+        if ($size === '') throw new RuntimeException('A size is required for Finished Goods. Select a size and submit your request again.');
         $stmt = $pdo->prepare("SELECT product_code item_code,product_name item_name,stock_quantity quantity,unit_price FROM inventory WHERE BINARY product_code=BINARY ? AND status='Active' LIMIT 1");
         $stmt->execute([(string)$catalogItem['item_code']]);
         $product = $stmt->fetch();
@@ -36,14 +39,14 @@ try {
         if ((float)$product['unit_price'] <= 0) throw new RuntimeException('A fixed price is not set for a selected item. Please remove it from your cart.');
         // Customer requests are quotations, so an order may exceed current Sales stock.
         // Sales checks availability later and requests replenishment after PO creation.
-        $valid[] = ['code' => $product['item_code'], 'qty' => $quantity, 'name' => $product['item_name']];
+        $valid[] = ['code' => $product['item_code'], 'qty' => $quantity, 'name' => $product['item_name'], 'size' => $size];
     }
     if (!$valid) throw new RuntimeException('Add at least one valid product and quantity.');
 
     // customer_order_requests.request_no is UNIQUE and each row represents one product line.
     // Give every product its own request number to prevent duplicate-key failures on multi-item carts.
     $requestNumbers = [];
-    $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,quantity,shipping_fee,notes,status) VALUES (?,?,CURDATE(),?,?,?,?,'Pending Quotation')");
+    $insert = $pdo->prepare("INSERT INTO customer_order_requests (request_no,customer_id,request_date,product_code,size,quantity,shipping_fee,notes,status) VALUES (?,?,CURDATE(),?,?,?,?,?,'Pending Quotation')");
     $staffIds = $pdo->query("
         SELECT user_id
         FROM users
@@ -63,7 +66,7 @@ try {
             if (!$check->fetchColumn()) break;
             $next++;
         } while (true);
-        $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['qty'], $lineIndex === 0 ? $shippingFee : 0, $note]);
+        $insert->execute([$requestNo, (int)$user['customer_id'], $line['code'], $line['size'], $line['qty'], $lineIndex === 0 ? $shippingFee : 0, $note]);
         $requestId = (int)$pdo->lastInsertId();
         $message = $customerName . ' ordered ' . $line['qty'] . ' x ' . $line['name'] . ' (' . $requestNo . ').';
         if (function_exists('mb_substr')) {

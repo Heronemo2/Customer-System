@@ -73,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$check->fetchColumn()) break;
                     $next++;
                 } while (true);
-                $stmt = $pdo->prepare("INSERT INTO purchase_orders (po_no,quotation_id,customer_id,product_code,inventory_product_id,quantity,total_amount,order_date,status) VALUES (?,?,?,?,?,?,?,CURDATE(),'Open')");
-                $stmt->execute([$poNo, $quotationId, $customerId, $q['product_code'], $q['fg_id'] ?? null, (int)$q['quantity'], (float)$q['total_amount']]);
+                $stmt = $pdo->prepare("INSERT INTO purchase_orders (po_no,quotation_id,customer_id,product_code,size,inventory_product_id,quantity,total_amount,order_date,status) VALUES (?,?,?,?,?,?,?,?,CURDATE(),'Open')");
+                $stmt->execute([$poNo, $quotationId, $customerId, $q['product_code'], $q['size'] ?? null, $q['fg_id'] ?? null, (int)$q['quantity'], (float)$q['total_amount']]);
             }
             if (!empty($q['source_request_id'])) {
                 $stmt = $pdo->prepare("UPDATE customer_order_requests SET status='Converted', quotation_id=? WHERE req_id=? AND customer_id=?");
@@ -91,6 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         respond(['error'=>'Could not save your decision. Please try again later.'], 500);
     }
 }
-$stmt = $pdo->prepare("SELECT q.sq_id,q.quotation_no,q.product_code,q.quantity,q.total_amount,q.quotation_date,q.valid_until,q.inventory_status,q.customer_status,q.status, CASE WHEN q.customer_status='Pending' AND q.valid_until IS NOT NULL AND q.valid_until < CURDATE() THEN 'Expired' ELSE q.status END AS effective_status, r.request_no FROM sales_quotations q LEFT JOIN customer_order_requests r ON r.req_id=q.source_request_id WHERE q.customer_id=? AND q.admin_status='Approved' ORDER BY q.sq_id DESC");
+$stmt = $pdo->prepare("SELECT q.sq_id,q.quotation_no,q.product_code,q.size,q.quantity,q.total_amount,q.quotation_date,q.valid_until,q.inventory_status,q.customer_status,q.status, CASE WHEN q.customer_status='Pending' AND q.valid_until IS NOT NULL AND q.valid_until < CURDATE() THEN 'Expired' ELSE q.status END AS effective_status, r.request_no FROM sales_quotations q LEFT JOIN customer_order_requests r ON r.req_id=q.source_request_id WHERE q.customer_id=? AND q.admin_status='Approved' ORDER BY q.sq_id DESC");
 $stmt->execute([$customerId]);
 respond(['quotations'=>$stmt->fetchAll()]);

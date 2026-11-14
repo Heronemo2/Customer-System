@@ -7,7 +7,7 @@ if (!$user) respond(['error' => 'Sign in to view your requests'], 401);
 
 try {
     $pdo = db();
-    $sql = "SELECT r.request_no,r.request_date,r.product_code,r.quantity,r.status,
+    $sql = "SELECT r.request_no,r.request_date,r.product_code,r.size,r.quantity,r.status,
                    q.quotation_no,q.customer_status quotation_status,
                    po.po_no,po.status po_status,
                    COALESCE(so.order_no,po.converted_order_no) order_no,
@@ -45,6 +45,7 @@ try {
         $safeCode = preg_match('/^[A-Za-z0-9_-]+$/', $code) ? $code : '';
         $order['items'] = [[
             'product_name' => $order['product_name'] ?: $order['product_code'],
+            'size' => (string)($order['size'] ?? ''),
             'quantity' => (int)$order['quantity'],
             'image_url' => $safeCode && is_file(__DIR__ . '/../assets/shoes/cut/' . $safeCode . '.svg')
                 ? 'assets/shoes/cut/' . $safeCode . '.svg'
