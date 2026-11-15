@@ -229,7 +229,6 @@ require __DIR__ . '/includes/layout-start.php';
 
           <div class="panel" style="margin-bottom:18px; border:1px solid var(--line); border-radius:14px; background:var(--card); padding:18px;">
             <h2 style="margin:0 0 12px;">Choose Payment Method</h2>
-            <div class="notice">GCash and debit/credit card checkout runs in a simulator. It does not process real payments. Never enter real payment credentials.</div>
             <?php if (!$payableInvoices): ?>
               <div class="notice">There are no unpaid invoices with a remaining balance.</div>
             <?php else: ?>
@@ -246,16 +245,16 @@ require __DIR__ . '/includes/layout-start.php';
                 </select>
               </label>
               <label style="display:grid; gap:6px; font-weight:600;">
-                Amount to pay (leave blank for COD)
-                <input type="number" step="0.01" min="0.01" name="amount" id="paymentAmount">
-              </label>
-              <label style="display:grid; gap:6px; font-weight:600;">
                 Method
                 <select name="method" id="paymentMethod" required>
                   <option value="COD">Cash on Delivery</option>
                   <option value="GCASH">GCash</option>
                   <option value="CARD">Debit/Credit Card</option>
                 </select>
+              </label>
+              <label style="display:grid; gap:6px; font-weight:600;">
+                Amount to pay (leave blank for COD)
+                <input type="number" step="0.01" min="0.01" name="amount" id="paymentAmount">
               </label>
               <button type="submit" class="btn" style="height:42px;">Pay Now</button>
             </form>

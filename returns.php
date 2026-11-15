@@ -13,16 +13,33 @@ $notice = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_return') {
     $orderId = (int)($_POST['order_id'] ?? 0);
     $reason = trim((string)($_POST['reason'] ?? ''));
-    $date = $_POST['return_date'] ?? date('Y-m-d');
-    $amount = (float)($_POST['total_amount'] ?? 0);
+    $date = date('Y-m-d');
     $returnQuantity = filter_var($_POST['return_quantity'] ?? null, FILTER_VALIDATE_INT);
 
-    if ($orderId <= 0 || $reason === '' || $date === '' || $amount <= 0 || !$returnQuantity || $returnQuantity < 1) {
-        $error = 'Select an order, enter a return quantity and amount, enter a reason, and choose a return date.';
+    if ($orderId <= 0 || $reason === '' || $date === '' || !$returnQuantity || $returnQuantity < 1) {
+        $error = 'Select an order, enter a return quantity and reason, and choose a return date.';
     } else {
         try {
+            $damagePhotoUpload = $_FILES['damage_photo'] ?? [];
+            if (($damagePhotoUpload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                throw new RuntimeException('Upload a JPG, PNG, or WebP damage photo (maximum 5 MB).');
+            }
+            $damagePhotoPath = (string)($damagePhotoUpload['tmp_name'] ?? '');
+            $damagePhotoSize = $damagePhotoPath !== '' && is_file($damagePhotoPath) ? filesize($damagePhotoPath) : false;
+            if ($damagePhotoSize === false || $damagePhotoSize < 16 || $damagePhotoSize > 5 * 1024 * 1024) {
+                throw new RuntimeException('The damage photo must be between 16 bytes and 5 MB.');
+            }
+            $damagePhotoMime = (new finfo(FILEINFO_MIME_TYPE))->file($damagePhotoPath);
+            if (!in_array($damagePhotoMime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+                throw new RuntimeException('Use a JPG, PNG, or WebP damage photo.');
+            }
+            $damagePhoto = file_get_contents($damagePhotoPath);
+            if ($damagePhoto === false) {
+                throw new RuntimeException('The damage photo could not be read.');
+            }
+
             $pdo->beginTransaction();
-            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,i.total_amount invoice_total,i.amount_paid FROM sales_orders o JOIN sales_invoices i ON i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount WHERE o.so_id=? AND o.customer_id=? LIMIT 1 FOR UPDATE");
+            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,COALESCE(q.shipping_fee,0) shipping_fee,i.total_amount invoice_total,i.amount_paid FROM sales_orders o LEFT JOIN sales_quotations q ON q.sq_id=o.quotation_id JOIN sales_invoices i ON i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount WHERE o.so_id=? AND o.customer_id=? LIMIT 1 FOR UPDATE");
             $orderStmt->execute([$orderId, $customerId]);
             $order = $orderStmt->fetch();
             if (!$order) {
@@ -38,8 +55,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             if ($returnQuantity > (int)$order['quantity']) {
                 throw new RuntimeException('Returned quantity cannot exceed the order quantity of ' . (int)$order['quantity'] . '.');
             }
+            $orderQuantity = (int)$order['quantity'];
+            $productSubtotal = round((float)$order['total_amount'] - (float)$order['shipping_fee'], 2);
+            if ($orderQuantity < 1 || $productSubtotal <= 0) {
+                throw new RuntimeException('Could not calculate the product price for this order.');
+            }
+            $unitPrice = round($productSubtotal / $orderQuantity, 2);
+            $amount = round($unitPrice * $returnQuantity, 2);
             if ($amount > (float)$order['invoice_total']) {
-                throw new RuntimeException('Return amount cannot exceed the paid invoice amount.');
+                throw new RuntimeException('The calculated return amount exceeds the paid invoice amount.');
             }
 
             $nextReturnId = (int)$pdo->query('SELECT COALESCE(MAX(ret_id),0)+1 FROM sales_returns')->fetchColumn();
@@ -50,8 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                 if (!$numberCheck->fetchColumn()) break;
                 $nextReturnId++;
             } while (true);
-            $insert = $pdo->prepare("INSERT INTO sales_returns (return_no, order_id, return_date, reason, return_quantity, total_amount, status, admin_status) VALUES (?, ?, ?, ?, ?, ?, 'Pending', 'Pending')");
-            $insert->execute([$returnNo, $orderId, $date, $reason, $returnQuantity, $amount]);
+            $insert = $pdo->prepare("INSERT INTO sales_returns (return_no, order_id, return_date, reason, return_quantity, total_amount, damage_photo, damage_photo_mime, status, admin_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Pending')");
+            $insert->execute([$returnNo, $orderId, $date, $reason, $returnQuantity, $amount, $damagePhoto, $damagePhotoMime]);
                 $returnId = (int)$pdo->lastInsertId();
                 $admins = $pdo->query("
                     SELECT user_id
@@ -83,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
-$ordersStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,(SELECT i.total_amount FROM sales_invoices i WHERE i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount ORDER BY i.inv_id DESC LIMIT 1) total_amount,o.order_date FROM sales_orders o WHERE o.customer_id=? AND o.quantity>0 AND o.status<>'Returned' AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount) AND NOT EXISTS (SELECT 1 FROM sales_returns r WHERE r.order_id=o.so_id AND r.admin_status IN ('Pending','Approved')) ORDER BY o.so_id DESC");
+$ordersStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.order_date FROM sales_orders o WHERE o.customer_id=? AND o.quantity>0 AND o.status<>'Returned' AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount) AND NOT EXISTS (SELECT 1 FROM sales_returns r WHERE r.order_id=o.so_id AND r.admin_status IN ('Pending','Approved')) ORDER BY o.so_id DESC");
 $ordersStmt->execute([$customerId]);
 $orders = $ordersStmt->fetchAll();
 
@@ -114,14 +138,14 @@ $rows = $returnStmt->fetchAll();
 
           <div class="panel" style="margin-bottom:18px; border:1px solid var(--line); border-radius:14px; background:var(--card); padding:18px;">
             <h2 style="margin:0 0 12px;">Create Return Request</h2>
-            <form method="POST" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
+            <form method="POST" enctype="multipart/form-data" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
               <input type="hidden" name="action" value="create_return">
               <label style="display:grid; gap:6px; font-weight:600;">
                 Sales Order
                 <select name="order_id" id="returnOrderSelect" required <?= !$orders ? 'disabled' : '' ?>>
                   <option value="">Select order</option>
                   <?php foreach ($orders as $order): ?>
-                    <option value="<?= (int)$order['so_id'] ?>" data-max-quantity="<?= (int)$order['quantity'] ?>" data-max-amount="<?= htmlspecialchars((string)$order['total_amount']) ?>"><?= htmlspecialchars($order['order_no'] . ' — ' . $order['product_code'] . ' (' . $order['quantity'] . ' pairs)') ?></option>
+                    <option value="<?= (int)$order['so_id'] ?>" data-max-quantity="<?= (int)$order['quantity'] ?>"><?= htmlspecialchars($order['order_no'] . ' — ' . $order['product_code'] . ' (' . $order['quantity'] . ' pairs)') ?></option>
                   <?php endforeach; ?>
                 </select>
                 <?php if (!$orders): ?><small class="muted">There are no eligible paid invoices. Orders with a pending or approved return cannot be selected again.</small><?php endif; ?>
@@ -130,17 +154,14 @@ $rows = $returnStmt->fetchAll();
                 Returned Quantity
                 <input type="number" name="return_quantity" id="returnQuantity" min="1" max="1" value="1" required <?= !$orders ? 'disabled' : '' ?>>
               </label>
-              <label style="display:grid; gap:6px; font-weight:600;">
-                Return Date
-                <input type="date" name="return_date" value="<?= date('Y-m-d') ?>" required>
-              </label>
-              <label style="display:grid; gap:6px; font-weight:600;">
-                Return Amount
-                <input type="number" step="0.01" min="0.01" id="returnAmount" name="total_amount" placeholder="Enter return amount" required <?= !$orders ? 'disabled' : '' ?>>
-              </label>
               <label style="display:grid; gap:6px; font-weight:600; grid-column: 1 / -1;">
                 Reason
                 <input type="text" name="reason" placeholder="Describe the issue or reason for return" required>
+              </label>
+              <label style="display:grid; gap:6px; font-weight:600; grid-column: 1 / -1;">
+                Damage Photo
+                <input type="file" name="damage_photo" accept="image/jpeg,image/png,image/webp" required <?= !$orders ? 'disabled' : '' ?>>
+                <small class="muted">JPG, PNG, or WebP · maximum 5 MB</small>
               </label>
               <button type="submit" class="btn" style="height:42px;" <?= !$orders ? 'disabled' : '' ?>>Send Request</button>
             </form>
@@ -192,17 +213,15 @@ $rows = $returnStmt->fetchAll();
           (() => {
               const order = document.getElementById('returnOrderSelect');
               const quantity = document.getElementById('returnQuantity');
-              const amount = document.getElementById('returnAmount');
-              if (!order || !quantity || !amount) return;
+              if (!order || !quantity) return;
               const syncLimits = () => {
                   const selected = order.selectedOptions[0];
                   const maxQuantity = Number(selected?.dataset.maxQuantity || 1);
                   quantity.max = String(maxQuantity);
-                  amount.max = selected?.dataset.maxAmount || '';
                   if (Number(quantity.value) > maxQuantity) quantity.value = String(maxQuantity);
-                  if (amount.value && Number(amount.value) > Number(amount.max)) amount.value = amount.max;
               };
               order.addEventListener('change', syncLimits);
+              quantity.addEventListener('input', syncLimits);
               syncLimits();
           })();
           </script>
