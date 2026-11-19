@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             }
 
             $pdo->beginTransaction();
-            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,COALESCE(q.shipping_fee,0) shipping_fee,i.total_amount invoice_total,i.amount_paid FROM sales_orders o LEFT JOIN sales_quotations q ON q.sq_id=o.quotation_id JOIN sales_invoices i ON i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount WHERE o.so_id=? AND o.customer_id=? LIMIT 1 FOR UPDATE");
+            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,COALESCE(q.shipping_fee,0) shipping_fee,i.total_amount invoice_total,i.amount_paid FROM sales_orders o LEFT JOIN sales_quotations q ON q.sq_id=o.quotation_id JOIN sales_invoices i ON i.order_id=o.so_id WHERE o.so_id=? AND o.customer_id=? AND o.status IN ('Invoiced','Completed') AND o.status<> 'Returned' LIMIT 1 FOR UPDATE");
             $orderStmt->execute([$orderId, $customerId]);
             $order = $orderStmt->fetch();
             if (!$order) {
@@ -107,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
-$ordersStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.order_date FROM sales_orders o WHERE o.customer_id=? AND o.quantity>0 AND o.status<>'Returned' AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id=o.so_id AND i.status='Paid' AND i.amount_paid>=i.total_amount) AND NOT EXISTS (SELECT 1 FROM sales_returns r WHERE r.order_id=o.so_id AND r.admin_status IN ('Pending','Approved')) ORDER BY o.so_id DESC");
+$ordersStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.order_date FROM sales_orders o WHERE o.customer_id=? AND o.quantity>0 AND o.status IN ('Invoiced','Completed') AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id=o.so_id) AND NOT EXISTS (SELECT 1 FROM sales_returns r WHERE r.order_id=o.so_id AND r.admin_status IN ('Pending','Approved')) ORDER BY o.so_id DESC");
 $ordersStmt->execute([$customerId]);
 $orders = $ordersStmt->fetchAll();
 
@@ -148,7 +148,7 @@ $rows = $returnStmt->fetchAll();
                     <option value="<?= (int)$order['so_id'] ?>" data-max-quantity="<?= (int)$order['quantity'] ?>"><?= htmlspecialchars($order['order_no'] . ' — ' . $order['product_code'] . ' (' . $order['quantity'] . ' pairs)') ?></option>
                   <?php endforeach; ?>
                 </select>
-                <?php if (!$orders): ?><small class="muted">There are no eligible paid invoices. Orders with a pending or approved return cannot be selected again.</small><?php endif; ?>
+                <?php if (!$orders): ?><small class="muted">There are no eligible invoiced or completed orders. Orders with a pending or approved return cannot be selected again.</small><?php endif; ?>
               </label>
               <label style="display:grid; gap:6px; font-weight:600;">
                 Returned Quantity

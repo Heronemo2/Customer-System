@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay_i
     if (!hash_equals($_SESSION['payment_csrf_token'], $csrfToken)) {
         http_response_code(400);
         $error = 'Your payment form expired. Reload the page and try again.';
-    } elseif ($invoiceId <= 0 || !in_array($method, ['COD', 'GCASH', 'CARD'], true)) {
+    } elseif ($invoiceId <= 0 || !in_array($method, ['GCASH', 'CARD'], true)) {
         $error = 'Select an invoice and a valid payment method.';
     } else {
         $invoiceStmt = $pdo->prepare("
@@ -126,11 +126,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay_i
             );
             if ($remainingCentavos <= 0) {
                 $error = 'This invoice has no remaining balance.';
-            } elseif ($method === 'COD') {
-                $paymentStatus = (float)$invoice['amount_paid'] > 0 ? 'Partially Paid' : 'Pending';
-                $pdo->prepare('UPDATE sales_orders SET payment_method = ?, payment_status = ?, payment_reference = NULL WHERE so_id = ?')
-                    ->execute(['Cash on Delivery', $paymentStatus, (int)$invoice['so_id']]);
-                $notice = 'Cash on delivery selected. The balance remains due until the rider confirms collection.';
             } else {
                 $amountCentavos = customer_payment_centavos($amount);
                 if ($amountCentavos === null || $amountCentavos <= 0) {
@@ -216,7 +211,7 @@ require __DIR__ . '/includes/layout-start.php';
             <div>
               <p class="eyebrow">PAYMENT</p>
               <h1>Payment</h1>
-              <p class="muted">Choose cash on delivery, GCash, or debit/credit card for an unpaid invoice.</p>
+              <p class="muted">Choose GCash or debit/credit card for an unpaid invoice.</p>
             </div>
           </div>
 
@@ -247,27 +242,16 @@ require __DIR__ . '/includes/layout-start.php';
               <label style="display:grid; gap:6px; font-weight:600;">
                 Method
                 <select name="method" id="paymentMethod" required>
-                  <option value="COD">Cash on Delivery</option>
                   <option value="GCASH">GCash</option>
                   <option value="CARD">Debit/Credit Card</option>
                 </select>
               </label>
               <label style="display:grid; gap:6px; font-weight:600;">
-                Amount to pay (leave blank for COD)
-                <input type="number" step="0.01" min="0.01" name="amount" id="paymentAmount">
+                Amount to pay
+                <input type="number" step="0.01" min="0.01" name="amount" id="paymentAmount" required>
               </label>
               <button type="submit" class="btn" style="height:42px;">Pay Now</button>
             </form>
-            <script>
-              const paymentMethod = document.getElementById('paymentMethod');
-              const paymentAmount = document.getElementById('paymentAmount');
-              const updatePaymentAmountRequirement = () => {
-                paymentAmount.required = paymentMethod.value !== 'COD';
-                paymentAmount.disabled = paymentMethod.value === 'COD';
-              };
-              paymentMethod.addEventListener('change', updatePaymentAmountRequirement);
-              updatePaymentAmountRequirement();
-            </script>
             <?php endif; ?>
           </div>
 
