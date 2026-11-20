@@ -39,21 +39,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             }
 
             $pdo->beginTransaction();
-            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,COALESCE(q.shipping_fee,0) shipping_fee,i.total_amount invoice_total,i.amount_paid FROM sales_orders o LEFT JOIN sales_quotations q ON q.sq_id=o.quotation_id JOIN sales_invoices i ON i.order_id=o.so_id WHERE o.so_id=? AND o.customer_id=? AND o.status IN ('Invoiced','Completed') AND o.status<> 'Returned' LIMIT 1 FOR UPDATE");
+            $orderStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.total_amount,o.status,COALESCE(q.shipping_fee,0) shipping_fee,i.total_amount invoice_total,i.amount_paid FROM sales_orders o LEFT JOIN sales_quotations q ON q.sq_id=o.quotation_id JOIN sales_invoices i ON i.order_id=o.so_id WHERE o.so_id=? AND o.customer_id=? AND o.status IN ('Invoiced','Completed') LIMIT 1 FOR UPDATE");
             $orderStmt->execute([$orderId, $customerId]);
             $order = $orderStmt->fetch();
             if (!$order) {
                 throw new RuntimeException('Selected order was not found for your account.');
             }
 
-            $existingReturn = $pdo->prepare("SELECT return_no FROM sales_returns WHERE order_id=? AND admin_status IN ('Pending','Approved') ORDER BY ret_id DESC LIMIT 1");
-            $existingReturn->execute([$orderId]);
-            $existingReturnNo = $existingReturn->fetchColumn();
-            if ($existingReturnNo) {
-                throw new RuntimeException('This order already has a pending or approved Sales return (' . $existingReturnNo . ').');
+            $pendingReturn = $pdo->prepare("SELECT return_no FROM sales_returns WHERE order_id=? AND admin_status='Pending' ORDER BY ret_id DESC LIMIT 1 FOR UPDATE");
+            $pendingReturn->execute([$orderId]);
+            $pendingReturnNo = $pendingReturn->fetchColumn();
+            if ($pendingReturnNo) {
+                throw new RuntimeException('This order already has a pending Sales return (' . $pendingReturnNo . '). Wait for it to be reviewed before submitting another.');
             }
-            if ($returnQuantity > (int)$order['quantity']) {
-                throw new RuntimeException('Returned quantity cannot exceed the order quantity of ' . (int)$order['quantity'] . '.');
+
+            $approvedReturns = $pdo->prepare("SELECT return_quantity FROM sales_returns WHERE order_id=? AND admin_status='Approved' FOR UPDATE");
+            $approvedReturns->execute([$orderId]);
+            $alreadyReturnedQuantity = array_sum(array_map('intval', $approvedReturns->fetchAll(PDO::FETCH_COLUMN)));
+            $availableQuantity = max(0, (int)$order['quantity'] - $alreadyReturnedQuantity);
+            if ($availableQuantity < 1) {
+                throw new RuntimeException('There is no quantity remaining to return for this order.');
+            }
+            if ($returnQuantity > $availableQuantity) {
+                throw new RuntimeException('Returned quantity cannot exceed the remaining ' . $availableQuantity . ' pair(s).');
             }
             $orderQuantity = (int)$order['quantity'];
             $productSubtotal = round((float)$order['total_amount'] - (float)$order['shipping_fee'], 2);
@@ -107,7 +115,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
-$ordersStmt = $pdo->prepare("SELECT o.so_id,o.order_no,o.product_code,o.quantity,o.order_date FROM sales_orders o WHERE o.customer_id=? AND o.quantity>0 AND o.status IN ('Invoiced','Completed') AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id=o.so_id) AND NOT EXISTS (SELECT 1 FROM sales_returns r WHERE r.order_id=o.so_id AND r.admin_status IN ('Pending','Approved')) ORDER BY o.so_id DESC");
+$ordersStmt = $pdo->prepare("
+    SELECT o.so_id, o.order_no, o.product_code, o.order_date,
+           o.quantity - COALESCE(returned.returned_quantity, 0) AS remaining_quantity
+    FROM sales_orders o
+    LEFT JOIN (
+        SELECT order_id, SUM(return_quantity) AS returned_quantity
+        FROM sales_returns
+        WHERE admin_status = 'Approved'
+        GROUP BY order_id
+    ) returned ON returned.order_id = o.so_id
+    WHERE o.customer_id = ?
+      AND o.status IN ('Invoiced', 'Completed')
+      AND o.quantity > COALESCE(returned.returned_quantity, 0)
+      AND EXISTS (SELECT 1 FROM sales_invoices i WHERE i.order_id = o.so_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM sales_returns r
+          WHERE r.order_id = o.so_id AND r.admin_status = 'Pending'
+      )
+    ORDER BY o.so_id DESC
+");
 $ordersStmt->execute([$customerId]);
 $orders = $ordersStmt->fetchAll();
 
@@ -140,15 +167,15 @@ $rows = $returnStmt->fetchAll();
             <h2 style="margin:0 0 12px;">Create Return Request</h2>
             <form method="POST" enctype="multipart/form-data" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
               <input type="hidden" name="action" value="create_return">
+              <?php if (!$orders): ?><small class="muted" style="grid-column:1 / -1;">There are no eligible orders with a quantity remaining to return. Wait for any pending return to be reviewed.</small><?php endif; ?>
               <label style="display:grid; gap:6px; font-weight:600;">
                 Sales Order
                 <select name="order_id" id="returnOrderSelect" required <?= !$orders ? 'disabled' : '' ?>>
                   <option value="">Select order</option>
                   <?php foreach ($orders as $order): ?>
-                    <option value="<?= (int)$order['so_id'] ?>" data-max-quantity="<?= (int)$order['quantity'] ?>"><?= htmlspecialchars($order['order_no'] . ' — ' . $order['product_code'] . ' (' . $order['quantity'] . ' pairs)') ?></option>
+                    <option value="<?= (int)$order['so_id'] ?>" data-max-quantity="<?= (int)$order['remaining_quantity'] ?>"><?= htmlspecialchars($order['order_no'] . ' — ' . $order['product_code'] . ' (' . $order['remaining_quantity'] . ' pairs available)') ?></option>
                   <?php endforeach; ?>
                 </select>
-                <?php if (!$orders): ?><small class="muted">There are no eligible invoiced or completed orders. Orders with a pending or approved return cannot be selected again.</small><?php endif; ?>
               </label>
               <label style="display:grid; gap:6px; font-weight:600;">
                 Returned Quantity
